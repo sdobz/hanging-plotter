@@ -5,7 +5,7 @@ let
 in pkgs.mkShell {
   buildInputs = [ esp-idf esp32-toolchain ];
   shellHook = ''
-    export IDF_PATH=${esp-idf}
+    export IDF_PATH="${esp-idf.outPath}"
     export NIX_CFLAGS_LINK=-lncurses
     export PATH=$PATH:$IDF_PATH/tools
   '';
