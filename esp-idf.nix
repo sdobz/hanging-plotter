@@ -3,15 +3,16 @@
 let
   version = "v4.1-dev";
 
-  pypkgs = python-packages: with python-packages; [
-    pyserial
-    click
-    cryptography
-    future
-    pyparsing
-    pyelftools
-    setuptools
-  ];
+  pypkgs = python-packages:
+    with python-packages; [
+      pyserial
+      click
+      cryptography
+      future
+      pyparsing
+      pyelftools
+      setuptools
+    ];
   python = pkgs.python2.withPackages pypkgs;
 
 in stdenv.mkDerivation rec {
@@ -20,14 +21,12 @@ in stdenv.mkDerivation rec {
   src = fetchFromGitHub {
     owner = "espressif";
     repo = "esp-idf";
-    rev  = "${version}";
+    rev = "${version}";
     fetchSubmodules = true;
     sha256 = "0d1iqxz1jqz3rrk2c5dq33wp1v71d9190wv3bnigxlp5kcsj0j1w";
   };
 
-  buildInputs = [
-    python
-  ];
+  buildInputs = [ python ];
 
   propagatedBuildInputs = [
     pkgs.cmake
@@ -50,7 +49,8 @@ in stdenv.mkDerivation rec {
 
   meta = with stdenv.lib; {
     description = "ESP IDF";
-    homepage = https://docs.espressif.com/projects/esp-idf/en/stable/get-started/linux-setup.html;
+    homepage =
+      "https://docs.espressif.com/projects/esp-idf/en/stable/get-started/linux-setup.html";
     license = licenses.gpl3;
   };
 }
