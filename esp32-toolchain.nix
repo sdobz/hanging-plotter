@@ -6,15 +6,15 @@ let
     targetPkgs = pkgs: with pkgs; [ zlib ];
     runScript = "";
   };
-in
 
-stdenv.mkDerivation rec {
+in stdenv.mkDerivation rec {
   name = "esp32-toolchain";
   version = "2019r2";
 
   src = fetchurl {
     # https://github.com/espressif/esp-idf/blob/release/v4.1/tools/tools.json#L27
-    url = "https://dl.espressif.com/dl/xtensa-esp32-elf-gcc8_2_0-esp-2019r2-linux-amd64.tar.gz";
+    url =
+      "https://dl.espressif.com/dl/xtensa-esp32-elf-gcc8_2_0-esp-2019r2-linux-amd64.tar.gz";
     sha256 = "1pzv1r9kzizh5gi3gsbs6jg8rs1yqnmf5rbifbivz34cplfprm76";
   };
 
@@ -35,7 +35,8 @@ stdenv.mkDerivation rec {
 
   meta = with stdenv.lib; {
     description = "ESP32 toolchain";
-    homepage = https://docs.espressif.com/projects/esp-idf/en/stable/get-started/linux-setup.html;
+    homepage =
+      "https://docs.espressif.com/projects/esp-idf/en/stable/get-started/linux-setup.html";
     license = licenses.gpl3;
   };
 }
