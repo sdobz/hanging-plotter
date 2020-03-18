@@ -15,7 +15,7 @@
 #define STEPPER3 14
 #define STEPPER4 27
 
-AccelStepper stepper(AccelStepper::FULL4WIRE, (gpio_num_t)STEPPER1, (gpio_num_t)STEPPER2, (gpio_num_t)STEPPER3, (gpio_num_t)STEPPER4);
+AccelStepper stepper(AccelStepper::FULL4WIRE, (gpio_num_t)STEPPER1, (gpio_num_t)STEPPER2, (gpio_num_t)STEPPER3, (gpio_num_t)STEPPER4, true);
 
 void blink(void *pvParameter)
 {
@@ -36,12 +36,13 @@ void blink(void *pvParameter)
 void bounce(void *pvParameter)
 {
     while(1) {
-      //printf("%ld\n", stepper.distanceToGo());
       if (stepper.distanceToGo() == 0) {
           stepper.moveTo(-stepper.currentPosition());
       }
 
+      // TODO: delay until next step is due so it isn't a busy loop
       stepper.run();
+      vTaskDelay(1);
     }
 }
 
@@ -49,10 +50,10 @@ extern "C" void app_main()
 {
     nvs_flash_init();
 
-    stepper.setMaxSpeed(100);
+    stepper.setMaxSpeed(200);
     stepper.setAcceleration(20);
     stepper.moveTo(500);
 
     xTaskCreate(&blink, "blink", 512,NULL,5,NULL );
-    xTaskCreate(&bounce, "bounce", 512,NULL,5,NULL );
+    xTaskCreate(&bounce, "bounce", 2048,NULL,5,NULL );
 }
