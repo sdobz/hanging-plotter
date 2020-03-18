@@ -1,0 +1,15 @@
+{
+    "idf.pythonBinPath": "${env:PYTHONHOME}/bin/python",
+    "idf.pythonSystemBinPath": "${env:PYTHONHOME}/bin/python",
+    "idf.toolsPath": "${env:IDF_TOOLS_PATH}",
+    "idf.showOnboardingOnInit": false,
+    "C_Cpp.default.includePath": [
+        "${env:IDF_PATH}/components"
+    ],
+    "files.associations": {
+        "sdkconfig.h": "c"
+    },
+    "cSpell.words": [
+        "GPIO"
+    ]
+}

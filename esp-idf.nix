@@ -11,11 +11,14 @@ let
     pyparsing
     pyelftools
     setuptools
+    pip
   ];
   python = pkgs.python2.withPackages pypkgs;
 
 in stdenv.mkDerivation rec {
   name = "esp-idf";
+
+  inherit python;
 
   src = fetchFromGitHub {
     owner = "espressif";

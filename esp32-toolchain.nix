@@ -1,41 +1,70 @@
-{ stdenv, fetchurl, makeWrapper, buildFHSUserEnv }:
+{ pkgs ? import <nixpkgs> {} }:
 
 let
+  # , stdenv, fetchurl, makeWrapper, buildFHSUserEnv
+  stdenv = pkgs.stdenv;
+  fetchurl = pkgs.fetchurl;
+  fetchzip = pkgs.fetchzip;
+  buildFHSUserEnv = pkgs.buildFHSUserEnv;
+  makeWrapper = pkgs.makeWrapper;
+  lib = pkgs.lib;
+
   fhsEnv = buildFHSUserEnv {
     name = "esp32-toolchain-env";
-    targetPkgs = pkgs: with pkgs; [ zlib ];
+    targetPkgs = pkgs: with pkgs; [ zlib libusb1 ];
     runScript = "";
   };
+  toolHashes = {
+    "xtensa-esp32-elf" = "0yay11fxq5qy65pn63rpfnhfgilv6393r46z6nmhr2mxdhf5g8nc";
+    # "xtensa-esp32s2-elf"
+    "esp32ulp-elf" = "1z3h76ksfiygz4cv5djgjhjpgqlzl9h3krxb0vv14fd36pw2m735";
+    # "esp32s2ulp-elf"
+    "openocd-esp32" = "16x6rg7w0byrjg0997123rmfg5amhvm1vlqdky0r84zgchqi2r7d";
+  };
+  version = "v4.1";
+
+  tools = let
+    toolInfoFile = fetchurl {
+      url = "https://raw.githubusercontent.com/espressif/esp-idf/release/${version}/tools/tools.json";
+      sha256 = "0bywgx9cvdzkq8nfwccszrka1a9p8sj6g2kzfvfdwylsr391zpwq";
+    };
+    toolInfo = builtins.fromJSON (builtins.readFile toolInfoFile);
+    filteredTools = builtins.filter (tool: builtins.hasAttr tool.name toolHashes) toolInfo.tools;
+    
+    fetchTool = tool:
+      let
+        fileInfo = (builtins.elemAt tool.versions 0).linux-amd64;
+      in {
+        name = tool.name;
+        src = fetchzip {
+          url = fileInfo.url;
+          sha256 = toolHashes.${tool.name};
+        };
+      };
+  in
+    builtins.map fetchTool filteredTools;
 in
 
-stdenv.mkDerivation rec {
-  name = "esp32-toolchain";
-  version = "2019r2";
-
-  src = fetchurl {
-    # https://github.com/espressif/esp-idf/blob/release/v4.1/tools/tools.json#L27
-    url = "https://dl.espressif.com/dl/xtensa-esp32-elf-gcc8_2_0-esp-2019r2-linux-amd64.tar.gz";
-    sha256 = "1pzv1r9kzizh5gi3gsbs6jg8rs1yqnmf5rbifbivz34cplfprm76";
-  };
-
+pkgs.runCommand "esp32-toolchain" {
   buildInputs = [ makeWrapper ];
-
-  phases = [ "unpackPhase" "installPhase" ];
-
-  installPhase = ''
-    cp -r . $out
-    for FILE in $(ls $out/bin); do
-      FILE_PATH="$out/bin/$FILE"
-      if [[ -x $FILE_PATH ]]; then
-        mv $FILE_PATH $FILE_PATH-unwrapped
-        makeWrapper ${fhsEnv}/bin/esp32-toolchain-env $FILE_PATH --add-flags "$FILE_PATH-unwrapped"
-      fi
-    done
-  '';
-
   meta = with stdenv.lib; {
     description = "ESP32 toolchain";
     homepage = https://docs.espressif.com/projects/esp-idf/en/stable/get-started/linux-setup.html;
     license = licenses.gpl3;
   };
-}
+} ''
+${lib.strings.concatStrings (builtins.map ({name, src}: ''
+mkdir -p $out/tools
+TOOLDIR=$out/tools/${name}
+cp -r ${src} $TOOLDIR
+chmod u+w $TOOLDIR/bin
+for FILE in $(ls $TOOLDIR/bin); do
+  FILE_PATH="$TOOLDIR/bin/$FILE"
+  if [[ -x $FILE_PATH ]]; then
+    mv $FILE_PATH $FILE_PATH-unwrapped
+    makeWrapper ${fhsEnv}/bin/esp32-toolchain-env $FILE_PATH --add-flags "$FILE_PATH-unwrapped"
+  fi
+done
+chmod u-w $TOOLDIR/bin
+'') tools)}
+''
