@@ -7,9 +7,14 @@
         "${env:IDF_PATH}/components"
     ],
     "files.associations": {
-        "sdkconfig.h": "c"
+        "sdkconfig.h": "c",
+        "freertos.h": "c",
+        "esp_system.h": "c",
+        "gpio.h": "c",
+        "nvs_flash.h": "c",
+        "accelstepper.h": "c"
     },
     "cSpell.words": [
         "GPIO"
-    ]
+    ],
 }

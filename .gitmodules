@@ -1,0 +1,3 @@
+[submodule "esp32/components/AccelStepper"]
+	path = esp32/components/AccelStepper
+	url = git@github.com:sdobz/AccelStepper-esp-idf.git

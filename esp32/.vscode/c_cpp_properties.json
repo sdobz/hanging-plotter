@@ -6,7 +6,26 @@
             "cStandard": "c11",
             "cppStandard": "c++17",
             "intelliSenseMode": "clang-x64",
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+            "compileCommands-nope": "${workspaceFolder}/build/compile_commands.json",
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/build/config",
+                "${workspaceFolder}/components/AccelStepper/include",
+                "${env:IDF_PATH}/components/esp_common/include",
+                "${env:IDF_PATH}/components/esp32/include",
+                "${env:IDF_PATH}/components/esp32_rom/include",
+                "${env:IDF_PATH}/components/driver/include",
+                "${env:IDF_PATH}/components/freertos/include",
+                "${env:IDF_PATH}/components/esp_rom/include",
+                "${env:IDF_PATH}/components/xtensa/include",
+                "${env:IDF_PATH}/components/xtensa/esp32/include",
+                "${env:IDF_PATH}/components/soc/include",
+                "${env:IDF_PATH}/components/soc/esp32/include",
+                "${env:IDF_PATH}/components/heap/include",
+                "${env:IDF_PATH}/components/newlib/include",
+                "/nix/store/2a43yf623akrizn37pq0rvr8raniwkck-esp-idf/components/nvs_flash/include",
+                "/nix/store/2a43yf623akrizn37pq0rvr8raniwkck-esp-idf/components/spi_flash/include"
+            ]
         }
     ],
     "version": 4
