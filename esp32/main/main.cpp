@@ -50,9 +50,9 @@ extern "C" void app_main()
 {
     nvs_flash_init();
 
-    stepper.setMaxSpeed(200);
-    stepper.setAcceleration(20);
-    stepper.moveTo(500);
+    stepper.setMaxSpeed(400);
+    stepper.setAcceleration(60);
+    stepper.moveTo(200);
 
     xTaskCreate(&blink, "blink", 512,NULL,5,NULL );
     xTaskCreate(&bounce, "bounce", 2048,NULL,5,NULL );
