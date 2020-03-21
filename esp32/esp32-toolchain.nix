@@ -21,12 +21,12 @@ let
     # "esp32s2ulp-elf"
     "openocd-esp32" = "16x6rg7w0byrjg0997123rmfg5amhvm1vlqdky0r84zgchqi2r7d";
   };
-  version = "v4.1";
+  version = "v4.2-dev";
 
   tools = let
     toolInfoFile = fetchurl {
-      url = "https://raw.githubusercontent.com/espressif/esp-idf/release/${version}/tools/tools.json";
-      sha256 = "0bywgx9cvdzkq8nfwccszrka1a9p8sj6g2kzfvfdwylsr391zpwq";
+      url = "https://raw.githubusercontent.com/espressif/esp-idf/${version}/tools/tools.json";
+      sha256 = "1p0s85dccl988ahjf006mzrnrc2wfqsf0xkds02z0m7g3z25cq8b";
     };
     toolInfo = builtins.fromJSON (builtins.readFile toolInfoFile);
     filteredTools = builtins.filter (tool: builtins.hasAttr tool.name toolHashes) toolInfo.tools;

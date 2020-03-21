@@ -2,3 +2,4 @@ esp-idf
 .espressif
 crosstool-NG
 build
+result

@@ -171,7 +171,8 @@
                 "${env:IDF_PATH}/components/wpa_supplicant/include",
                 "${env:IDF_PATH}/components/wpa_supplicant/port/include",
                 "${env:IDF_PATH}/components/xtensa/esp32/include",
-                "${env:IDF_PATH}/components/xtensa/include"
+                "${env:IDF_PATH}/components/xtensa/include",
+                "/nix/store/p6mcp8kcs20x7d64p9408d7nh3qk7i13-esp-idf/components/bt/host/bluedroid/api/include/api"
             ]
         }
     ],

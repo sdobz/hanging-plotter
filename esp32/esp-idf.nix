@@ -1,7 +1,7 @@
 { stdenv, fetchFromGitHub, pkgs, makeWrapper }:
 
 let
-  version = "v4.1-dev";
+  version = "v4.2-dev";
 
   pypkgs = python-packages: with python-packages; [
     pyserial
@@ -25,7 +25,7 @@ in stdenv.mkDerivation rec {
     repo = "esp-idf";
     rev  = "${version}";
     fetchSubmodules = true;
-    sha256 = "0d1iqxz1jqz3rrk2c5dq33wp1v71d9190wv3bnigxlp5kcsj0j1w";
+    sha256 = "0wziv7vjcr49ahm0ahqx6dspa9x7av2px2ly7g3lqlrham9hcdk2";
   };
 
   buildInputs = [
