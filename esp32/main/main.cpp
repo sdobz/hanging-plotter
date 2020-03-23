@@ -65,7 +65,7 @@ extern "C" void app_main()
     bluetooth_init();
     stepper.setMaxSpeed(400);
     stepper.setAcceleration(60);
-    stepper.moveTo(200);
+    stepper.moveTo(100);
 
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
     xTaskCreatePinnedToCore(&bounce, "bounce", 2048,NULL,5,NULL, 1);
