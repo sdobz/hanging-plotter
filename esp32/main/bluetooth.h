@@ -1,4 +1,5 @@
 void bluetooth_init(void);
+void bluetooth_motor_position(long pos);
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +17,9 @@ enum
     IDX_CHAR_B,
     IDX_CHAR_VAL_B,
 
-    IDX_CHAR_C,
-    IDX_CHAR_VAL_C,
+    IDX_MOTOR_POS,
+    IDX_MOTOR_POS_VALUE,
+    IDX_MOTOR_POS_CFG,
 
     HRS_IDX_NB,
 };

@@ -50,6 +50,16 @@ void bounce(void *pvParameter)
     }
 }
 
+
+void notify(void *pvParameter)
+{
+    while(1) {
+        bluetooth_motor_position(stepper.currentPosition());
+        vTaskDelay(100 / portTICK_RATE_MS);
+    }
+}
+
+
 extern "C" void app_main()
 {
     esp_err_t ret;
@@ -69,4 +79,5 @@ extern "C" void app_main()
 
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
     xTaskCreatePinnedToCore(&bounce, "bounce", 2048,NULL,5,NULL, 1);
+    xTaskCreatePinnedToCore(&notify, "notify", 2048,NULL,5,NULL, 1);
 }
