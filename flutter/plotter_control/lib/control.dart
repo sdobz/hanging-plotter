@@ -6,15 +6,14 @@ import 'package:flutter_blue/flutter_blue.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'dart:async';
+
+import 'package:plotter_control/polargraph.dart';
 
 class DeviceControlScreen extends StatelessWidget {
   const DeviceControlScreen({Key key, this.device}) : super(key: key);
 
   final BluetoothDevice device;
-
-  void _onChanged(Offset joystick) {
-    //print(joystick.dx);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,17 +91,60 @@ class DeviceControlScreen extends StatelessWidget {
               ),
             ),
           ),
-          new JoystickControl(onChanged: _onChanged),
+          new PolargraphControlWidget(device: device),
         ]),
       ),
     );
   }
 }
 
-class JoystickControl extends StatefulWidget {
+class PolargraphControlWidget extends StatefulWidget {
+  const PolargraphControlWidget({Key key, this.device}) : super(key: key);
+
+  final BluetoothDevice device;
+
+  @override
+  PolargraphControlState createState() => new PolargraphControlState();
+}
+
+class PolargraphControlState extends State<PolargraphControlWidget> {
+  Polargraph _polargraph;
+
+  Polargraph get polargraph {
+    if (_polargraph == null) {
+      _polargraph = Polargraph(device: widget.device);
+      _polargraph.discover();
+    }
+    return _polargraph;
+  }
+  
+  Offset lastVelocity;
+  Timer velocityTicker;
+
+  void _fireVelocity(Timer t) {
+    if (lastVelocity == null) {
+      velocityTicker.cancel();
+      velocityTicker = null;
+    } else {
+      polargraph.sendVelocity(lastVelocity);
+      lastVelocity = null;
+    }
+  }
+
+  void _onVelocityJoystickChanged(Offset joystick) {
+    lastVelocity = joystick;
+    if (velocityTicker == null) {
+      velocityTicker = Timer.periodic(Duration(milliseconds: 100), _fireVelocity);
+      _fireVelocity(velocityTicker);
+    }
+  }
+  Widget build(BuildContext context) => new JoystickControlWidget(onChanged: _onVelocityJoystickChanged);
+}
+
+class JoystickControlWidget extends StatefulWidget {
   final ValueChanged<Offset> onChanged;
 
-  const JoystickControl({Key key, this.onChanged}) : super(key: key);
+  const JoystickControlWidget({Key key, this.onChanged}) : super(key: key);
 
   @override
   JoystickControlState createState() => new JoystickControlState();
@@ -110,7 +152,7 @@ class JoystickControl extends StatefulWidget {
 
 /// Draws a circle at supplied position.
 ///
-class JoystickControlState extends State<JoystickControl> {
+class JoystickControlState extends State<JoystickControlWidget> {
   static const markerSize = 0.3;
   static const resetRate = 0.02;
 
@@ -189,6 +231,7 @@ class JoystickControlState extends State<JoystickControl> {
     if (position.distanceSquared < resetRate) {
       setState(() {
         position = Offset(0.0, 0.0);
+        widget.onChanged(position);
       });
       resetTicker.stop();
     }
@@ -199,6 +242,7 @@ class JoystickControlState extends State<JoystickControl> {
 
     setState(() {
       position = position * pow(1 - resetRate, timeDelta);
+      widget.onChanged(position);
     });
 
     lastTick = tickTime;

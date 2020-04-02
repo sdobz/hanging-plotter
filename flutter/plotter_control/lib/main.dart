@@ -8,12 +8,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import 'package:flutter_blue/flutter_blue.dart';
+import 'package:plotter_control/polargraph.dart';
 import 'package:wakelock/wakelock.dart';
 
 import 'package:plotter_control/bluetooth.dart';
 import 'package:plotter_control/control.dart';
 
-const polargraphUUID = "000000ff-0000-1000-8000-00805f9b34fb";
 
 void main() {
   runApp(FlutterBlueApp());
@@ -131,10 +131,7 @@ class FindDevicesScreen extends StatelessWidget {
                 initialData: [],
                 builder: (c, snapshot) => Column(
                   children: snapshot.data
-                      .where((d) =>
-                          d.advertisementData.serviceUuids.isNotEmpty &&
-                          d.advertisementData.serviceUuids
-                              .contains(polargraphUUID))
+                      .where(isPolargraph)
                       .map(
                         (r) => ScanResultTile(
                           result: r,
