@@ -17,5 +17,6 @@ in
       export ANDROID_JAVA_HOME=${pkgs.jdk.home}
       export ANDROID_HOME=~/.androidsdk
       export FLUTTER_SDK=${flutterPkgs.flutter.unwrapped}
+      export _JAVA_AWT_WM_NONREPARENTING=1
     '';
   }

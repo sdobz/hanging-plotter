@@ -11,6 +11,7 @@ import 'package:flutter_blue/flutter_blue.dart';
 import 'package:wakelock/wakelock.dart';
 
 import 'package:plotter_control/bluetooth.dart';
+import 'package:plotter_control/control.dart';
 
 const polargraphUUID = "000000ff-0000-1000-8000-00805f9b34fb";
 
@@ -18,8 +19,19 @@ void main() {
   runApp(FlutterBlueApp());
 }
 
-class FlutterBlueApp extends StatelessWidget {
+class FlutterBlueApp extends StatefulWidget {
+  @override
+  _FlutterBlueState createState() {
+    Wakelock.isEnabled.then((enabled) {
+      if (!enabled) {
+        Wakelock.enable();
+      }
+    });
+    return _FlutterBlueState();
+  }
+}
 
+class _FlutterBlueState extends State<FlutterBlueApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -90,26 +102,27 @@ class FindDevicesScreen extends StatelessWidget {
                 builder: (c, snapshot) => Column(
                   children: snapshot.data
                       .map((d) => ListTile(
-                    title: Text(d.name),
-                    subtitle: Text(d.id.toString()),
-                    trailing: StreamBuilder<BluetoothDeviceState>(
-                      stream: d.state,
-                      initialData: BluetoothDeviceState.disconnected,
-                      builder: (c, snapshot) {
-                        if (snapshot.data ==
-                            BluetoothDeviceState.connected) {
-                          return RaisedButton(
-                            child: Text('OPEN'),
-                            onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (context) =>
-                                        DeviceScreen(device: d))),
-                          );
-                        }
-                        return Text(snapshot.data.toString());
-                      },
-                    ),
-                  ))
+                            title: Text(d.name),
+                            subtitle: Text(d.id.toString()),
+                            trailing: StreamBuilder<BluetoothDeviceState>(
+                              stream: d.state,
+                              initialData: BluetoothDeviceState.disconnected,
+                              builder: (c, snapshot) {
+                                if (snapshot.data ==
+                                    BluetoothDeviceState.connected) {
+                                  return RaisedButton(
+                                    child: Text('OPEN'),
+                                    onPressed: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                            builder: (context) =>
+                                                DeviceControlScreen(
+                                                    device: d))),
+                                  );
+                                }
+                                return Text(snapshot.data.toString());
+                              },
+                            ),
+                          ))
                       .toList(),
                 ),
               ),
@@ -118,19 +131,20 @@ class FindDevicesScreen extends StatelessWidget {
                 initialData: [],
                 builder: (c, snapshot) => Column(
                   children: snapshot.data
-                      .where(
-                      (d) => d.advertisementData.serviceUuids.isNotEmpty &&
-                          d.advertisementData.serviceUuids.contains(polargraphUUID))
+                      .where((d) =>
+                          d.advertisementData.serviceUuids.isNotEmpty &&
+                          d.advertisementData.serviceUuids
+                              .contains(polargraphUUID))
                       .map(
                         (r) => ScanResultTile(
-                      result: r,
-                      onTap: () => Navigator.of(context)
-                          .push(MaterialPageRoute(builder: (context) {
-                        r.device.connect();
-                        return DeviceScreen(device: r.device);
-                      })),
-                    ),
-                  )
+                          result: r,
+                          onTap: () => Navigator.of(context)
+                              .push(MaterialPageRoute(builder: (context) {
+                            r.device.connect();
+                            return DeviceControlScreen(device: r.device);
+                          })),
+                        ),
+                      )
                       .toList(),
                 ),
               ),
@@ -160,8 +174,8 @@ class FindDevicesScreen extends StatelessWidget {
   }
 }
 
-class DeviceScreen extends StatelessWidget {
-  const DeviceScreen({Key key, this.device}) : super(key: key);
+class DeviceInfoScreen extends StatelessWidget {
+  const DeviceInfoScreen({Key key, this.device}) : super(key: key);
 
   final BluetoothDevice device;
 
@@ -179,29 +193,29 @@ class DeviceScreen extends StatelessWidget {
     return services
         .map(
           (s) => ServiceTile(
-        service: s,
-        characteristicTiles: s.characteristics
-            .map(
-              (c) => CharacteristicTile(
-            characteristic: c,
-            onReadPressed: () => c.read(),
-            onWritePressed: () => c.write(_getRandomBytes()),
-            onNotificationPressed: () =>
-                c.setNotifyValue(!c.isNotifying),
-            descriptorTiles: c.descriptors
+            service: s,
+            characteristicTiles: s.characteristics
                 .map(
-                  (d) => DescriptorTile(
-                descriptor: d,
-                onReadPressed: () => d.read(),
-                onWritePressed: () => d.write(_getRandomBytes()),
-              ),
-            )
+                  (c) => CharacteristicTile(
+                    characteristic: c,
+                    onReadPressed: () => c.read(),
+                    onWritePressed: () => c.write(_getRandomBytes()),
+                    onNotificationPressed: () =>
+                        c.setNotifyValue(!c.isNotifying),
+                    descriptorTiles: c.descriptors
+                        .map(
+                          (d) => DescriptorTile(
+                            descriptor: d,
+                            onReadPressed: () => d.read(),
+                            onWritePressed: () => d.write(_getRandomBytes()),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                )
                 .toList(),
           ),
         )
-            .toList(),
-      ),
-    )
         .toList();
   }
 
