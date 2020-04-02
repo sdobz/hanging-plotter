@@ -15,6 +15,12 @@
         "accelstepper.h": "c"
     },
     "cSpell.words": [
-        "GPIO"
+        "GPIO",
+        "chnl",
+        "gattc",
+        "gatts",
+        "logi",
+        "srvc",
+        "txpower"
     ],
 }

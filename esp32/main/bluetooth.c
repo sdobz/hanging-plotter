@@ -137,20 +137,24 @@ static struct gatts_profile_inst polargraph_profile_tab[PROFILE_NUM] = {
 
 /* Service */
 static const uint16_t GATTS_SERVICE_UUID_TEST      = 0x00FF;
-static const uint16_t GATTS_CHAR_UUID_TEST_A       = 0xFF01;
-static const uint16_t GATTS_CHAR_UUID_TEST_B       = 0xFF02;
-static const uint16_t GATTS_CHAR_UUID_TEST_C       = 0xFF03;
+static const uint16_t GATTS_UUID_MOTOR_VEL_SET     = 0xFF01;
+static const uint16_t GATTS_UUID_MOTOR_VEL_REAL    = 0xFF02;
+static const uint16_t GATTS_UUID_MOTOR_POS         = 0xFF03;
 
 static const uint16_t primary_service_uuid         = ESP_GATT_UUID_PRI_SERVICE;
 static const uint16_t character_declaration_uuid   = ESP_GATT_UUID_CHAR_DECLARE;
 static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
-static const uint8_t char_prop_read                = ESP_GATT_CHAR_PROP_BIT_READ;
+//static const uint8_t char_prop_read                = ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_read_notify         = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static const uint8_t char_prop_read_write          = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_read_write_notify   = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
-static const uint8_t heart_measurement_ccc[2]      = {0x00, 0x00};
-static const uint8_t char_value[4]                 = {0x11, 0x22, 0x33, 0x44};
 
 static bool ble_has_connection = false;
+
+static uint8_t motor_vel_set_val[2] = {0, 0};
+
+static uint8_t motor_vel_real_val[2] = {0, 0};
+static const uint8_t motor_vel_real_ccc[2]      = {0x00, 0x00};
 
 static long motor_pos_val = 0L;
 static const uint8_t motor_pos_ccc[2]      = {0x00, 0x00};
@@ -163,42 +167,32 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&primary_service_uuid, ESP_GATT_PERM_READ,
       sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID_TEST), (uint8_t *)&GATTS_SERVICE_UUID_TEST}},
 
-    /* Characteristic Declaration */
-    [IDX_CHAR_A]     =
+    // Motor velocity setpoint          R/W     0xFF01
+    [IDX_MOTOR_VEL_SET]     =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
+      CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write}},
+    [IDX_MOTOR_VEL_SET_VALUE] =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_UUID_MOTOR_VEL_SET, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(motor_vel_set_val), (uint8_t *)motor_vel_set_val}},
+
+    // Motor velocity actual            R/W/N   0xFF02
+    [IDX_MOTOR_VEL_REAL]     =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
       CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write_notify}},
-
-    /* Characteristic Value */
-    [IDX_CHAR_VAL_A] =
-    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_A, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
-
-    /* Client Characteristic Configuration Descriptor */
-    [IDX_CHAR_CFG_A]  =
+    [IDX_MOTOR_VEL_REAL_VALUE] =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_UUID_MOTOR_VEL_REAL, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(motor_vel_real_val), (uint8_t *)motor_vel_real_val}},
+    [IDX_MOTOR_VEL_REAL_CFG]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-      sizeof(uint16_t), sizeof(heart_measurement_ccc), (uint8_t *)heart_measurement_ccc}},
+      sizeof(uint16_t), sizeof(motor_vel_real_ccc), (uint8_t *)motor_vel_real_val}},
 
-    /* Characteristic Declaration */
-    [IDX_CHAR_B]      =
-    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
-      CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read}},
-
-    /* Characteristic Value */
-    [IDX_CHAR_VAL_B]  =
-    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_B, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
-
-    /* Characteristic Declaration */
+    // Motor position in abs steps      R/W/N   0xFF03
     [IDX_MOTOR_POS]      =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
       CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_notify}},
-
-    /* Characteristic Value */
     [IDX_MOTOR_POS_VALUE]  =
-    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_C, ESP_GATT_PERM_READ,
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_UUID_MOTOR_POS, ESP_GATT_PERM_READ,
       sizeof(motor_pos_val), sizeof(motor_pos_val), (uint8_t *)&motor_pos_val}},
-
-    /* Client Characteristic Configuration Descriptor */
     [IDX_MOTOR_POS_CFG]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       sizeof(uint16_t), sizeof(motor_pos_ccc), (uint8_t *)motor_pos_ccc}},
@@ -344,36 +338,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
                 ESP_LOGI(GATTS_TABLE_TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
                 esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
-                if (polargraph_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2){
-                    uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
-                    if (descr_value == 0x0001){
-                        ESP_LOGI(GATTS_TABLE_TAG, "notify enable");
-                        uint8_t notify_data[15];
-                        for (int i = 0; i < sizeof(notify_data); ++i)
-                        {
-                            notify_data[i] = i % 0xff;
-                        }
-                        //the size of notify_data[] need less than MTU size
-                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, polargraph_handle_table[IDX_CHAR_VAL_A],
-                                                sizeof(notify_data), notify_data, false);
-                    }else if (descr_value == 0x0002){
-                        ESP_LOGI(GATTS_TABLE_TAG, "indicate enable");
-                        uint8_t indicate_data[15];
-                        for (int i = 0; i < sizeof(indicate_data); ++i)
-                        {
-                            indicate_data[i] = i % 0xff;
-                        }
-                        //the size of indicate_data[] need less than MTU size
-                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, polargraph_handle_table[IDX_CHAR_VAL_A],
-                                            sizeof(indicate_data), indicate_data, true);
-                    }
-                    else if (descr_value == 0x0000){
-                        ESP_LOGI(GATTS_TABLE_TAG, "notify/indicate disable ");
-                    }else{
-                        ESP_LOGE(GATTS_TABLE_TAG, "unknown descr value");
-                        esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
-                    }
-
+                if (polargraph_handle_table[IDX_MOTOR_VEL_SET_VALUE] == param->write.handle && param->write.len == 2){
+                    ESP_LOGI(GATTS_TABLE_TAG, "Writing to motor_vel_set");
                 }
                 /* send response when param->write.need_rsp is true*/
                 if (param->write.need_rsp){

@@ -10,12 +10,13 @@ void bluetooth_motor_position(long pos);
 enum
 {
     IDX_SVC,
-    IDX_CHAR_A,
-    IDX_CHAR_VAL_A,
-    IDX_CHAR_CFG_A,
 
-    IDX_CHAR_B,
-    IDX_CHAR_VAL_B,
+    IDX_MOTOR_VEL_SET,
+    IDX_MOTOR_VEL_SET_VALUE,
+
+    IDX_MOTOR_VEL_REAL,
+    IDX_MOTOR_VEL_REAL_VALUE,
+    IDX_MOTOR_VEL_REAL_CFG,
 
     IDX_MOTOR_POS,
     IDX_MOTOR_POS_VALUE,
