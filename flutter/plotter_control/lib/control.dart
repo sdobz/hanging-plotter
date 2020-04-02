@@ -92,20 +92,7 @@ class DeviceControlScreen extends StatelessWidget {
               ),
             ),
           ),
-          new AspectRatio(
-              aspectRatio: 1,
-              child: new Container(
-                height: 200,
-                decoration: new BoxDecoration(
-                  color: Colors.white,
-                  border: new Border.all(
-                    color: Colors.black,
-                    width: 2.0,
-                  ),
-                ),
-                child: new Center(
-                    child: new JoystickControl(onChanged: _onChanged)),
-              )),
+          new JoystickControl(onChanged: _onChanged),
         ]),
       ),
     );
@@ -125,16 +112,18 @@ class JoystickControl extends StatefulWidget {
 ///
 class JoystickControlState extends State<JoystickControl> {
   static const markerSize = 0.3;
-  static const resetRate = 0.005;
+  static const resetRate = 0.02;
 
   // Widget state
   Offset position = Offset(0, 0);
+
+  Offset touchOffset = Offset(0, 0);
 
   // Managing resetting position
   Ticker resetTicker;
   int lastTick;
 
-  double get unitScale => 2.0 / (1-markerSize);
+  double get unitScale => 2.0 / (1 - markerSize);
 
   Offset offsetToUnit(Offset offset) {
     final RenderBox referenceBox = context.findRenderObject();
@@ -144,9 +133,9 @@ class JoystickControlState extends State<JoystickControl> {
     final Size size = referenceBox.size;
     final Offset local = referenceBox.globalToLocal(offset);
 
-    final uncapped = Offset(
-            (local.dx / size.width) - 0.5, (local.dy / size.height) - 0.5) *
-        unitScale;
+    final uncapped =
+        Offset((local.dx / size.width) - 0.5, (local.dy / size.height) - 0.5) *
+            unitScale;
     return uncapped / max(1, uncapped.distance);
   }
 
@@ -155,15 +144,15 @@ class JoystickControlState extends State<JoystickControl> {
     if (referenceBox == null) {
       return Offset(0, 0);
     }
-    final unit = scaledUnit / unitScale;
+    final unit = (scaledUnit / unitScale);
     final Size size = referenceBox.size;
 
     return Offset((unit.dx + 0.5) * size.width, (unit.dy + 0.5) * size.height);
   }
 
-  void onChanged(Offset offset) {
-    final p = offsetToUnit(offset);
-    if (widget.onChanged != null) widget.onChanged(position);
+  void onChanged(Offset touchPos) {
+    final p = offsetToUnit(touchPos);
+    if (widget.onChanged != null) widget.onChanged(p);
 
     setState(() {
       position = p;
@@ -184,46 +173,53 @@ class JoystickControlState extends State<JoystickControl> {
   }
 
   void _handlePanStart(DragStartDetails details) {
-    onChanged(details.globalPosition);
+    final RenderBox referenceBox = context.findRenderObject();
+    final localOffset = referenceBox.globalToLocal(details.globalPosition);
+    final positionOffset = unitToOffset(position);
+    touchOffset = positionOffset - localOffset;
+
+    onChanged(details.globalPosition + touchOffset);
     if (resetTicker != null) {
       resetTicker.stop();
       resetTicker = null;
     }
   }
 
+  void recenterJoystick(duration) {
+    if (position.distanceSquared < resetRate) {
+      setState(() {
+        position = Offset(0.0, 0.0);
+      });
+      resetTicker.stop();
+    }
+
+    final tickTime = DateTime.now().millisecondsSinceEpoch;
+
+    final timeDelta = tickTime - lastTick;
+
+    setState(() {
+      position = position * pow(1 - resetRate, timeDelta);
+    });
+
+    lastTick = tickTime;
+  }
+
   void _handlePanEnd(DragEndDetails details) {
     lastTick = DateTime.now().millisecondsSinceEpoch;
-    resetTicker = Ticker((duration) {
-      if (position.distanceSquared < 0.005) {
-        setState(() {
-          position = Offset(0.0,0.0);
-        });
-        resetTicker.stop();
-      }
-
-      final tickTime = DateTime.now().millisecondsSinceEpoch;
-
-      final timeDelta = tickTime - lastTick;
-
-      setState(() {
-        position = position * pow(1-resetRate, timeDelta);
-      });
-
-      lastTick = tickTime;
-    });
+    resetTicker = Ticker(recenterJoystick);
     resetTicker.start();
   }
 
   void _handlePanUpdate(DragUpdateDetails details) {
-    onChanged(details.globalPosition);
+    onChanged(details.globalPosition + touchOffset);
   }
 
   @override
   Widget build(BuildContext context) {
     RenderBox ro = context.findRenderObject();
     double markerRadius = ro == null ? 0 : ro.size.width * markerSize / 2;
-    return new ConstrainedBox(
-      constraints: new BoxConstraints.expand(),
+    return new AspectRatio(
+      aspectRatio: 1,
       child: new GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: _handlePanStart,
@@ -231,7 +227,8 @@ class JoystickControlState extends State<JoystickControl> {
         onPanUpdate: _handlePanUpdate,
         child: new CustomPaint(
           size: ro != null ? ro.size : new Size(0, 0),
-          painter: new TouchControlPainter(unitToOffset(position), markerRadius),
+          painter:
+              new TouchControlPainter(unitToOffset(position), markerRadius),
         ),
       ),
     );
@@ -241,16 +238,19 @@ class JoystickControlState extends State<JoystickControl> {
 class TouchControlPainter extends CustomPainter {
   final Offset offset;
   final double markerRadius;
+  static final markerPaint = new Paint()
+    ..color = Colors.blue[400]
+    ..style = PaintingStyle.fill;
+  static final backgroundPaint = new Paint()
+    ..color = Colors.blue[100]
+    ..style = PaintingStyle.fill;
 
   TouchControlPainter(this.offset, this.markerRadius);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = new Paint()
-      ..color = Colors.blue[400]
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(offset, markerRadius, paint);
+    canvas.drawCircle(Offset(size.width/2, size.height/2), size.width/2, backgroundPaint);
+    canvas.drawCircle(offset, markerRadius, markerPaint);
   }
 
   @override
