@@ -6,20 +6,15 @@
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 
-#include "AccelStepper.h"
-
-extern "C" {
+#include "stepper.h"
 #include "bluetooth.h"
-}
 
 #define BLINK_GPIO (gpio_num_t)CONFIG_BLINK_GPIO
 
-#define STEPPER1 13
-#define STEPPER2 12
-#define STEPPER3 14
-#define STEPPER4 27
+// void motor_receive_motor_set(int8_t a_vel, int8_t b_vel)
 
-AccelStepper stepper(AccelStepper::FULL4WIRE, (gpio_num_t)STEPPER1, (gpio_num_t)STEPPER2, (gpio_num_t)STEPPER3, (gpio_num_t)STEPPER4, true);
+
+static gpio_num_t motor_a_pins[4] = {13, 12, 14, 27};
 
 void blink(void *pvParameter)
 {
@@ -37,30 +32,7 @@ void blink(void *pvParameter)
     }
 }
 
-void bounce(void *pvParameter)
-{
-    while(1) {
-      if (stepper.distanceToGo() == 0) {
-          stepper.moveTo(-stepper.currentPosition());
-      }
-
-      // TODO: delay until next step is due so it isn't a busy loop
-      stepper.run();
-      vTaskDelay(1);
-    }
-}
-
-
-void notify(void *pvParameter)
-{
-    while(1) {
-        bluetooth_motor_position(stepper.currentPosition());
-        vTaskDelay(100 / portTICK_RATE_MS);
-    }
-}
-
-
-extern "C" void app_main()
+void app_main()
 {
     esp_err_t ret;
     // Initialize NVS.
@@ -72,12 +44,8 @@ extern "C" void app_main()
 
     ESP_ERROR_CHECK( ret );
 
-    bluetooth_init();
-    stepper.setMaxSpeed(400);
-    stepper.setAcceleration(60);
-    stepper.moveTo(100);
+    bluetooth_init(stepper_set_velocities);
+    stepper_init(motor_a_pins, bluetooth_motor_position);
 
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
-    xTaskCreatePinnedToCore(&bounce, "bounce", 2048,NULL,5,NULL, 1);
-    xTaskCreatePinnedToCore(&notify, "notify", 2048,NULL,5,NULL, 1);
 }

@@ -1,9 +1,12 @@
-void bluetooth_init(void);
-void bluetooth_motor_position(long pos);
-
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
+
+typedef void (*bluetooth_stepper_vel_setter_t)(int8_t, int8_t);
+
+void bluetooth_init(bluetooth_stepper_vel_setter_t);
+void bluetooth_motor_position(long pos);
 
 
 /* Attributes State Machine */

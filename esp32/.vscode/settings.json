@@ -12,7 +12,14 @@
         "esp_system.h": "c",
         "gpio.h": "c",
         "nvs_flash.h": "c",
-        "accelstepper.h": "c"
+        "accelstepper.h": "c",
+        "stepper.h": "c",
+        "rmt.h": "c",
+        "event_groups.h": "c",
+        "semphr.h": "c",
+        "projdefs.h": "c",
+        "task.h": "c",
+        "rmt_struct.h": "c"
     },
     "cSpell.words": [
         "GPIO",

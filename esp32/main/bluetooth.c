@@ -151,9 +151,10 @@ static const uint8_t char_prop_read_write_notify   = ESP_GATT_CHAR_PROP_BIT_WRIT
 
 static bool ble_has_connection = false;
 
-static uint8_t motor_vel_set_val[2] = {0, 0};
+static bluetooth_stepper_vel_setter_t bluetooth_stepper_vel_setter;
+static int8_t motor_vel_set_val[2] = {0, 0};
 
-static uint8_t motor_vel_real_val[2] = {0, 0};
+static int8_t motor_vel_real_val[2] = {0, 0};
 static const uint8_t motor_vel_real_ccc[2]      = {0x00, 0x00};
 
 static long motor_pos_val = 0L;
@@ -339,7 +340,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 ESP_LOGI(GATTS_TABLE_TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
                 esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
                 if (polargraph_handle_table[IDX_MOTOR_VEL_SET_VALUE] == param->write.handle && param->write.len == 2){
-                    ESP_LOGI(GATTS_TABLE_TAG, "Writing to motor_vel_set");
+                    bluetooth_stepper_vel_setter(param->write.value[0], param->write.value[1]);
                 }
                 /* send response when param->write.need_rsp is true*/
                 if (param->write.need_rsp){
@@ -464,9 +465,10 @@ void bluetooth_motor_position(long pos)
     }
 }
 
-void bluetooth_init(void)
+void bluetooth_init(bluetooth_stepper_vel_setter_t s)
 {
     esp_err_t ret;
+    bluetooth_stepper_vel_setter = s;
 
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
