@@ -19,7 +19,9 @@
         "semphr.h": "c",
         "projdefs.h": "c",
         "task.h": "c",
-        "rmt_struct.h": "c"
+        "rmt_struct.h": "c",
+        "rmt_async.h": "c",
+        "esp_log.h": "c"
     },
     "cSpell.words": [
         "GPIO",

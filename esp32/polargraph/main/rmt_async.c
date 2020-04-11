@@ -849,7 +849,7 @@ esp_err_t rmt_write_items(rmt_channel_t channel, const rmt_item32_t *rmt_item, i
         rmt_ll_write_memory(p_rmt_obj[channel]->hal.mem, channel, &stop_data, 1, len_rem);
         p_rmt->tx_len_rem = 0;
     }
-    rmt_tx_start(channel, true);
+    //rmt_tx_start(channel, true);
     p_rmt->wait_done = wait_tx_done;
     if (wait_tx_done) {
         xSemaphoreTake(p_rmt->tx_sem, portMAX_DELAY);

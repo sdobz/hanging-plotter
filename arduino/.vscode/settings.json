@@ -1,0 +1,3 @@
+{
+    "arduino.path": "${env:ARDUINO_DIR}"
+}
