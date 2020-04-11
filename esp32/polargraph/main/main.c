@@ -15,6 +15,7 @@
 
 
 static gpio_num_t motor_a_pins[4] = {13, 12, 14, 27};
+static rmt_channel_t motor_a_channels[4] = {RMT_CHANNEL_0, RMT_CHANNEL_1, RMT_CHANNEL_2, RMT_CHANNEL_3};
 
 void blink(void *pvParameter)
 {
@@ -32,6 +33,27 @@ void blink(void *pvParameter)
     }
 }
 
+static int8_t last_vel_a = 0;
+static int16_t *step_info[2];
+void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
+    if (vel_a == 0) {
+        step_info[0] = 0;
+    }
+    else {
+        step_info[0] = vel_a > 0 ? 10 : -10;
+    }
+    step_info[1] = 127 - abs(vel_a);
+
+    if (last_vel_a == 0 && vel_a != 0) {
+        stepper_start();
+    }
+    last_vel_a = vel_a;
+}
+
+int16_t *stepper_get_step_info() {
+    return step_info;
+}
+
 void app_main()
 {
     esp_err_t ret;
@@ -45,7 +67,7 @@ void app_main()
     ESP_ERROR_CHECK( ret );
 
     bluetooth_init(stepper_set_velocities);
-    stepper_init(motor_a_pins, bluetooth_motor_position);
+    stepper_init(motor_a_pins, motor_a_channels, bluetooth_motor_position, stepper_get_step_info);
 
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
 }

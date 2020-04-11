@@ -4,13 +4,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "rmt_async.h"
+#include <driver/rmt.h>
 
 #include <inttypes.h>
 
 #define NUM_PINS 4
-#define NUM_STEPPERS 2
-#define RMT_BUFFER_SIZE 64 // 2 items per size rmt_item32_t
+#define NUM_STEPPERS 1
+#define RMT_BUFFER_SIZE 8 // number of rmt_item32_t to store in buffer, note 2 steps per item
+#define RMT_BUFFER_COUNT 2 // 2 framebuffers
+
+#define RMT_DIV 255
+#define RMT_HZ 80000000
 
 static uint8_t step_seq[] = {
     0b0001,
@@ -23,91 +27,159 @@ static uint8_t step_seq[] = {
     0b1001
 };
 
+static rmt_item32_t end_marker = {{{ 0, 0, 0, 0 }}};
+
 // Array of items to transmit to a stepper control pin
 typedef rmt_item32_t stepper_rmt_buffer_t[RMT_BUFFER_SIZE];
 
 typedef struct {
-    int8_t _velocity_setpoint;
     stepper_rmt_buffer_t _rmt_buffer[NUM_PINS];
+    rmt_channel_t _rmt_channel[NUM_PINS];
+    
+    int32_t _abs_steps;
+    int16_t _steps_remaining;
+    int16_t _clk_per_step;
+    uint8_t _step_dir;
+    uint8_t _buffer_segment;
 } stepper_state_t;
 
 static stepper_state_t stepper_state[NUM_STEPPERS];
 
+
+static intr_handle_t gRMT_intr_handle = NULL;
+
 static stepper_position_report_t stepper_position_reporter;
+static stepper_get_steps_t stepper_get_steps;
 
-void setup_rmt(uint32_t, gpio_num_t, rmt_channel_t);
-void write_step(uint32_t, uint32_t, uint8_t, uint8_t);
-void write_step_double(size_t, size_t, uint8_t);
+void stepper_isr();
 
-void stepper_init(gpio_num_t pins_a[NUM_PINS], stepper_position_report_t r) {
-    int64_t start = esp_timer_get_time();
+void stepper_init(gpio_num_t pins_a[NUM_PINS], rmt_channel_t channels_a[NUM_PINS], stepper_position_report_t r, stepper_get_steps_t step_getter) {
     stepper_position_reporter = r;
+    stepper_get_steps = step_getter;
 
-    setup_rmt(0, pins_a[0], RMT_CHANNEL_0);
-    setup_rmt(0, pins_a[1], RMT_CHANNEL_1);
-    setup_rmt(0, pins_a[2], RMT_CHANNEL_2);
-    setup_rmt(0, pins_a[3], RMT_CHANNEL_3);
-    
     size_t i;
-    for (i = 0; i < RMT_BUFFER_SIZE; i++) {
-        write_step_double(0, i, step_seq[i & 0xff]);
+    for (int i=0; i < NUM_PINS; i++) {
+        rmt_channel_t channel = channels_a[i];
+        stepper_state[0]._rmt_channel[i] = channel;
+        rmt_config_t config = RMT_DEFAULT_CONFIG_TX(pins_a[i], channel);
+        config.tx_config.loop_en = false;
+        config.clk_div = RMT_DIV;
+
+        ESP_ERROR_CHECK(rmt_config(&config));
+        //ESP_ERROR_CHECK(rmt_driver_install(channel, 0, 0));
+        for (int b=0;b<RMT_BUFFER_SIZE;b++) {
+            stepper_state[0]._rmt_buffer[i][b] = end_marker;
+        }
+        for (int f=0;f<RMT_BUFFER_COUNT;f++) {
+            // Copy the buffer into the rmt driver memory
+            // For each framebuffer
+            ESP_ERROR_CHECK(rmt_fill_tx_items(channel, stepper_state[0]._rmt_buffer[i], RMT_BUFFER_SIZE, RMT_BUFFER_SIZE*f));
+        }
+        // Copy an end marker after both buffers
+        ESP_ERROR_CHECK(rmt_fill_tx_items(channel, &end_marker, 1, RMT_BUFFER_SIZE*RMT_BUFFER_COUNT + 1));
+    }
+    rmt_set_tx_thr_intr_en(channels_a[0], true, RMT_BUFFER_SIZE);
+
+     if (gRMT_intr_handle == NULL)
+        esp_intr_alloc(ETS_RMT_INTR_SOURCE, 0, stepper_isr, 0, &gRMT_intr_handle);
+}
+
+IRAM_ATTR void stepper_isr(void *arg) {
+    uint32_t intr_st = RMT.int_st.val;
+    uint8_t channel;
+
+    for (channel = 0; channel < NUM_PINS; channel ++) {
+        int tx_done_bit = channel * 3;
+        int tx_next_bit = channel + 24;
+
+        // -- More to send on this channel
+        if (intr_st & BIT(tx_next_bit)) {
+            RMT.int_clr.val |= BIT(tx_next_bit);
+            
+            // -- Refill the half of the buffer that we just finished,
+            //    allowing the other half to proceed.
+            stepper_fill_buffer(&stepper_state[0]);
+        } else {
+            // -- Transmission is complete on this channel
+            if (intr_st & BIT(tx_done_bit)) {
+                RMT.int_clr.val |= BIT(tx_done_bit);
+                // We're done boys?
+            }
+        }
+    }
+    // clear interrupt
+}
+
+uint8_t stepper_pop_mask(stepper_state_t *stepper) {
+    if (stepper->_steps_remaining == 0) {
+        return 0;
+    }
+    uint8_t mask = step_seq[stepper->_abs_steps & 0x7];
+    stepper->_abs_steps += stepper->_step_dir;
+    stepper->_steps_remaining--;
+    if (stepper->_steps_remaining == 0) {
+        int16_t *step_info = stepper_get_steps();
+        if (step_info[0] == 0) {
+            // let _steps_remaining stay at 0 for all future pop_masks
+            return mask;
+        }
+        stepper->_steps_remaining = abs(step_info[0]);
+        stepper->_clk_per_step = step_info[1] * RMT_HZ / (RMT_DIV * 1000000);
+        stepper->_step_dir = step_info[0] > 0 ? 1 : 0;
     }
 
-    // ESP rmt has 512x32bit RAM block, thus 512 rmt_item32_ts/8 = 64 items/
-    // 
-    ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_0, stepper_state[0]._rmt_buffer[0], RMT_BUFFER_SIZE, false));
-    ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_1, stepper_state[0]._rmt_buffer[1], RMT_BUFFER_SIZE, false));
-    ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_2, stepper_state[0]._rmt_buffer[2], RMT_BUFFER_SIZE, false));
-    ESP_ERROR_CHECK(rmt_write_items(RMT_CHANNEL_3, stepper_state[0]._rmt_buffer[3], RMT_BUFFER_SIZE, false));
-    int64_t end = esp_timer_get_time();
-
-    rmt_tx_start(RMT_CHANNEL_0, true);
-    rmt_tx_start(RMT_CHANNEL_1, true);
-    rmt_tx_start(RMT_CHANNEL_2, true);
-    rmt_tx_start(RMT_CHANNEL_3, true);
-    int64_t sent = esp_timer_get_time();
-
-    printf("send %" PRId64 " ms transmit %" PRId64 "ms\n", end - start, sent - end);
+    return mask;
 }
 
-void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
-    stepper_state[0]._velocity_setpoint = vel_a;
-}
+void stepper_fill_buffer(stepper_state_t *stepper) {
+    rmt_item32_t src = end_marker;
+    uint8_t mask0;
+    uint8_t mask1;
+    uint32_t ticks0;
+    uint32_t ticks1;
+    for (size_t offset = 0; offset < RMT_BUFFER_SIZE; offset++) {
+        mask0 = stepper_pop_mask(stepper);
+        ticks0 = stepper->_clk_per_step;
+        printf("tick %i\n", stepper->_abs_steps);
+        mask1 = stepper_pop_mask(stepper);
+        ticks1 = stepper->_clk_per_step;
+        printf("tick %i\n", stepper->_abs_steps);
+        for (size_t i = 0; i < NUM_PINS; i++) {
+            src.level0 = mask0 & (1 << i) ? 0 : 1;
+            src.duration0 = ticks0;
+            src.level1 = mask1 & (1 << i) ? 0 : 1;
+            src.duration1 = ticks1;
+            stepper->_rmt_buffer[i][offset].val = src.val;
+        }
+    }
 
-void setup_rmt(uint32_t stepper, gpio_num_t pin, rmt_channel_t channel) {
-    rmt_config_t config = RMT_DEFAULT_CONFIG_TX(pin, channel);
-    config.tx_config.loop_en = false;
-    config.clk_div = 255;
+    for (size_t i = 0; i < NUM_PINS; i++) {
+        // Write the buffer to the current buffer segment
+        ESP_ERROR_CHECK(rmt_fill_tx_items(
+            stepper->_rmt_channel[i],
+            stepper->_rmt_buffer[i],
+            RMT_BUFFER_SIZE,
+            RMT_BUFFER_SIZE*stepper->_buffer_segment));
 
-    ESP_ERROR_CHECK(rmt_config(&config));
-    ESP_ERROR_CHECK(rmt_driver_install(config.channel, 0, 0));
-}
-
-// TODO: https://github.com/espressif/esp-idf/blob/c9f29e0b59988779bf0792e2e954c3448fd37e3b/examples/peripherals/rmt/led_strip/components/led_strip/src/led_strip_rmt_ws2812.c#L64
-
-#define STEP_DUR 500
-void write_step(uint32_t stepper, size_t offset, uint8_t mask0, uint8_t mask1) {
-    rmt_item32_t *dst;
-    rmt_item32_t src = {{{ STEP_DUR, 0, STEP_DUR, 0 }}};
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
-        src.level0 = mask0 & (1 << i) ? 0 : 1;
-        src.level1 = mask1 & (1 << i) ? 0 : 1;
-        dst = &stepper_state[stepper]._rmt_buffer[i][offset];
-        dst->val = src.val;
+        // Wrapping increment the buffer
+        stepper->_buffer_segment++;
+        if (stepper->_buffer_segment >= RMT_BUFFER_COUNT) {
+            stepper->_buffer_segment = 0;
+        }
+      
+        if (stepper->_steps_remaining == 0) {
+            // Stop looping after this buffer
+            rmt_set_tx_loop_mode(stepper->_rmt_channel[i], false);
+        }
     }
 }
 
-void write_step_double(size_t stepper, size_t offset, uint8_t mask) {
-    rmt_item32_t *dst;
-    rmt_item32_t src = {{{ STEP_DUR, 0, STEP_DUR, 0 }}};
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
-        src.level0 = mask & (1 << i) ? 1 : 0;
-        src.level1 = src.level0;
-        dst = &stepper_state[stepper]._rmt_buffer[i][offset];
-        dst->val = src.val;
-        printf("%i", src.level0);
+void stepper_start_tx(stepper_state_t *stepper) {
+    stepper->_buffer_segment = 0;
+    stepper_fill_buffer(stepper);
+    for (size_t i=0; i<NUM_PINS; i++) {
+        rmt_set_tx_intr_en(stepper->_rmt_channel[i], false);
+        // Starts transmission
+        rmt_set_tx_loop_mode(stepper->_rmt_channel[i], true);
     }
-    printf("\n");
 }
