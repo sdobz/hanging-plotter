@@ -21,7 +21,14 @@
         "task.h": "c",
         "rmt_struct.h": "c",
         "rmt_async.h": "c",
-        "esp_log.h": "c"
+        "esp_log.h": "c",
+        "inttypes.h": "c",
+        "rmt_ll.h": "c",
+        "rmt_hal.h": "c",
+        "rmt_types.h": "c",
+        "rmt_caps.h": "c",
+        "stdio.h": "c",
+        "periph_ctrl.h": "c"
     },
     "cSpell.words": [
         "GPIO",

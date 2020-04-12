@@ -7,12 +7,13 @@
 #include "driver/gpio.h"
 
 #include "stepper.h"
+#include "debug.h"
+
 #include "bluetooth.h"
 
 #define BLINK_GPIO (gpio_num_t)CONFIG_BLINK_GPIO
 
 // void motor_receive_motor_set(int8_t a_vel, int8_t b_vel)
-
 
 static gpio_num_t motor_a_pins[4] = {13, 12, 14, 27};
 static rmt_channel_t motor_a_channels[4] = {RMT_CHANNEL_0, RMT_CHANNEL_1, RMT_CHANNEL_2, RMT_CHANNEL_3};
@@ -34,7 +35,7 @@ void blink(void *pvParameter)
 }
 
 static int8_t last_vel_a = 0;
-static int16_t *step_info[2];
+static int32_t step_info[2] = {10, 5000};
 void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
     if (vel_a == 0) {
         step_info[0] = 0;
@@ -50,8 +51,9 @@ void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
     last_vel_a = vel_a;
 }
 
-int16_t *stepper_get_step_info() {
-    return step_info;
+int32_t *(*stepper_get_step_info()) {
+    DEBUG_PRINT("stepper_get_step_info\n")
+    return (int32_t*)&step_info;
 }
 
 void app_main()
@@ -68,6 +70,6 @@ void app_main()
 
     bluetooth_init(stepper_set_velocities);
     stepper_init(motor_a_pins, motor_a_channels, bluetooth_motor_position, stepper_get_step_info);
-
+    stepper_start();
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
 }
