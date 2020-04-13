@@ -14,7 +14,7 @@
 
 #define NUM_PINS 4
 #define NUM_STEPPERS 1
-#define RMT_BUFFER_SIZE 8  // number of rmt_item32_t to store in buffer, note 2 steps per item
+#define RMT_BUFFER_SIZE 2  // number of rmt_item32_t to store in buffer, note 2 steps per item
 #define RMT_BUFFER_COUNT 2 // 2 framebuffers
 
 #define RMT_DIV 255
@@ -25,6 +25,11 @@
 #define US_TO_CYCLES(n) (((n)*RMT_DIV) / CYCLES_PER_US)
 
 #define RMT_SOURCE_CLK(select) ((select == RMT_BASECLK_REF) ? (RMT_SOURCE_CLK_REF) : (RMT_SOUCCE_CLK_APB))
+
+// Spinlock for protecting concurrent register-level access only
+static portMUX_TYPE stepper_spinlock = portMUX_INITIALIZER_UNLOCKED;
+#define STEPPER_LOCK()  portENTER_CRITICAL_SAFE(&stepper_spinlock)
+#define STEPPER_UNLOCK()   portEXIT_CRITICAL_SAFE(&stepper_spinlock)
 
 static uint8_t step_seq[] = {
     0b0001,
@@ -50,12 +55,12 @@ typedef struct
     int32_t _abs_steps;
     int32_t _steps_remaining;
     int32_t _clk_per_step;
-    uint8_t _step_dir;
+    int8_t _step_dir;
     uint8_t _buffer_segment;
 } stepper_state_t;
 
 #define DEBUG_STEPPER(stepper) DEBUG_PRINT(      \
-    "abs: %i rem: %i clk: %i dir: %i seg: %i\n", \
+    "abs: %d rem: %d clk: %d dir: %d seg: %d\n", \
     stepper->_abs_steps,                         \
     stepper->_steps_remaining,                   \
     stepper->_clk_per_step,                      \
@@ -78,6 +83,7 @@ void stepper_init(gpio_num_t pins_a[NUM_PINS], rmt_channel_t channels_a[NUM_PINS
 
     stepper_state_t *stepper = &stepper_state[0];
 
+    STEPPER_LOCK();
     periph_module_enable(PERIPH_RMT_MODULE);
     rmt_hal_init(&stepper->_hal);
 
@@ -123,6 +129,7 @@ void stepper_init(gpio_num_t pins_a[NUM_PINS], rmt_channel_t channels_a[NUM_PINS
 
     if (gRMT_intr_handle == NULL)
         esp_intr_alloc(ETS_RMT_INTR_SOURCE, 0, stepper_isr, 0, &gRMT_intr_handle);
+    STEPPER_UNLOCK();
 }
 
 void stepper_load_next_steps(stepper_state_t *stepper)
@@ -137,7 +144,7 @@ void stepper_load_next_steps(stepper_state_t *stepper)
     }
     stepper->_steps_remaining = abs(steps_to_take);
     stepper->_clk_per_step = US_TO_CYCLES(us_per_step);
-    stepper->_step_dir = steps_to_take > 0 ? 1 : 0;
+    stepper->_step_dir = steps_to_take > 0 ? 1 : -1;
 }
 
 uint8_t stepper_pop_mask(stepper_state_t *stepper)
@@ -159,7 +166,6 @@ uint8_t stepper_pop_mask(stepper_state_t *stepper)
 
 void stepper_fill_buffer(stepper_state_t *stepper)
 {
-    DEBUG_PRINT("stepper_fill_buffer\n")
     rmt_item32_t src = end_marker;
     uint8_t mask0;
     uint8_t mask1;
@@ -169,10 +175,10 @@ void stepper_fill_buffer(stepper_state_t *stepper)
     {
         mask0 = stepper_pop_mask(stepper);
         ticks0 = stepper->_clk_per_step;
-        DEBUG_STEPPER(stepper)
+        // DEBUG_STEPPER(stepper);
         mask1 = stepper_pop_mask(stepper);
         ticks1 = stepper->_clk_per_step;
-        DEBUG_STEPPER(stepper)
+        // DEBUG_STEPPER(stepper);
         for (size_t i = 0; i < NUM_PINS; i++)
         {
             src.level0 = mask0 & (1 << i) ? 0 : 1;
@@ -203,7 +209,8 @@ void stepper_fill_buffer(stepper_state_t *stepper)
 IRAM_ATTR void stepper_isr(void *arg)
 {
     stepper_state_t *stepper = &stepper_state[0];
-    DEBUG_PRINT("stepper_isr, step: %i steps rem: %i\n", stepper->_abs_steps, stepper->_steps_remaining)
+    DEBUG_STEPPER(stepper);
+    
     uint32_t intr_st = RMT.int_st.val;
     uint8_t channel;
 
@@ -227,7 +234,7 @@ IRAM_ATTR void stepper_isr(void *arg)
             if (intr_st & BIT(tx_done_bit))
             {
                 RMT.int_clr.val |= BIT(tx_done_bit);
-                DEBUG_PRINT("tx complete\n")
+                //DEBUG_PRINT("tx complete\n")
                 // We're done boys?
             }
         }

@@ -30,6 +30,7 @@
 #include "esp_gatt_common_api.h"
 
 #include "bluetooth.h"
+#include "debug.h"
 
 #define GATTS_TABLE_TAG "GATTS_TABLE_DEMO"
 

@@ -5,6 +5,7 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
+#include <math.h>
 
 #include "stepper.h"
 #include "debug.h"
@@ -13,6 +14,9 @@
 
 #define BLINK_GPIO (gpio_num_t)CONFIG_BLINK_GPIO
 
+#define SHORTEST_STEP 100
+#define LONGEST_STEP 10280
+
 // void motor_receive_motor_set(int8_t a_vel, int8_t b_vel)
 
 static gpio_num_t motor_a_pins[4] = {13, 12, 14, 27};
@@ -20,7 +24,6 @@ static rmt_channel_t motor_a_channels[4] = {RMT_CHANNEL_0, RMT_CHANNEL_1, RMT_CH
 
 void blink(void *pvParameter)
 {
-    
     gpio_pad_select_gpio(BLINK_GPIO);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
@@ -41,10 +44,17 @@ void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
         step_info[0] = 0;
     }
     else {
-        step_info[0] = vel_a > 0 ? 10 : -10;
+        step_info[0] = vel_a > 0 ? 2 : -2;
     }
-    step_info[1] = 127 - abs(vel_a);
-
+    //step_info[1] = (128-abs(vel_a))*80; // microseconds per tick, 0 - 10280
+    step_info[1] = (int32_t) pow(3.0, (260.0-(double)abs(vel_a))/31);
+    // Got by solving 2^((128)/X) = 10280
+    if (step_info[1] < SHORTEST_STEP) {
+        step_info[1] = SHORTEST_STEP;
+    }
+    else if (step_info[1] > LONGEST_STEP) {
+        step_info[1] = LONGEST_STEP;
+    }
     if (last_vel_a == 0 && vel_a != 0) {
         stepper_start();
     }
@@ -52,7 +62,7 @@ void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
 }
 
 int32_t *(*stepper_get_step_info()) {
-    DEBUG_PRINT("stepper_get_step_info\n")
+    //DEBUG_PRINT("stepper_get_step_info\n")
     return (int32_t*)&step_info;
 }
 

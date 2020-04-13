@@ -45,8 +45,8 @@ class Polargraph {
     if (motorVelSet == null) {
       return;
     }
-    int vx = (vel.dx * 128).round().clamp(-127, 128);
-    int vy = (vel.dy * 128).round().clamp(-127, 128);
+    int vx = (vel.dx * 127).round().clamp(-127, 127);
+    int vy = (vel.dy * 127).round().clamp(-127, 127);
 
     motorVelSet.write([vx, vy], withoutResponse: true);
   }
