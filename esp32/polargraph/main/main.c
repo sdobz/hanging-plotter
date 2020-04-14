@@ -14,13 +14,19 @@
 
 #define BLINK_GPIO (gpio_num_t)CONFIG_BLINK_GPIO
 
-#define SHORTEST_STEP 100
-#define LONGEST_STEP 10280
 
 // void motor_receive_motor_set(int8_t a_vel, int8_t b_vel)
 
-static gpio_num_t motor_a_pins[4] = {13, 12, 14, 27};
-static rmt_channel_t motor_a_channels[4] = {RMT_CHANNEL_0, RMT_CHANNEL_1, RMT_CHANNEL_2, RMT_CHANNEL_3};
+static gpio_num_t stepper_pins[NUM_STEPPERS][NUM_PINS] = {{13, 12, 14, 27}, {26,25,33,32}};
+static rmt_channel_t stepper_channels[NUM_STEPPERS][NUM_PINS] = {{
+    RMT_CHANNEL_0,
+    RMT_CHANNEL_1,
+    RMT_CHANNEL_2,
+    RMT_CHANNEL_3},{
+    RMT_CHANNEL_4,
+    RMT_CHANNEL_5,
+    RMT_CHANNEL_6,
+    RMT_CHANNEL_7 }};
 
 void blink(void *pvParameter)
 {
@@ -38,32 +44,20 @@ void blink(void *pvParameter)
 }
 
 static int8_t last_vel_a = 0;
-static int32_t step_info[2] = {10, 5000};
+static int8_t last_vel_b = 0;
+static stepper_task_t step_task = {{5, 5}, 10000};
 void stepper_set_velocities(int8_t vel_a, int8_t vel_b) {
-    if (vel_a == 0) {
-        step_info[0] = 0;
-    }
-    else {
-        step_info[0] = vel_a > 0 ? 2 : -2;
-    }
-    //step_info[1] = (128-abs(vel_a))*80; // microseconds per tick, 0 - 10280
-    step_info[1] = (int32_t) pow(3.0, (260.0-(double)abs(vel_a))/31);
-    // Got by solving 2^((128)/X) = 10280
-    if (step_info[1] < SHORTEST_STEP) {
-        step_info[1] = SHORTEST_STEP;
-    }
-    else if (step_info[1] > LONGEST_STEP) {
-        step_info[1] = LONGEST_STEP;
-    }
-    if (last_vel_a == 0 && vel_a != 0) {
+    step_task.steps[0] = vel_a;
+    step_task.steps[1] = vel_b;
+    if ((last_vel_a == 0 && vel_a != 0) || (last_vel_b == 0 && vel_b != 0)) {
         stepper_start();
     }
     last_vel_a = vel_a;
+    last_vel_b = vel_b;
 }
 
-int32_t *(*stepper_get_step_info()) {
-    //DEBUG_PRINT("stepper_get_step_info\n")
-    return (int32_t*)&step_info;
+stepper_task_t *(*stepper_get_task()) {
+    return (int32_t*)&step_task;
 }
 
 void app_main()
@@ -79,7 +73,7 @@ void app_main()
     ESP_ERROR_CHECK( ret );
 
     bluetooth_init(stepper_set_velocities);
-    stepper_init(motor_a_pins, motor_a_channels, bluetooth_motor_position, stepper_get_step_info);
+    stepper_init(stepper_pins, stepper_channels, bluetooth_motor_position, stepper_get_task);
     stepper_start();
     xTaskCreatePinnedToCore(&blink, "blink", 512,NULL,5,NULL, 1);
 }
