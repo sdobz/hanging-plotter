@@ -20,5 +20,5 @@ typedef stepper_task_t *(*stepper_get_task_t)();
 void stepper_init(gpio_num_t[NUM_STEPPERS][NUM_PINS], rmt_channel_t[NUM_STEPPERS][NUM_PINS], stepper_position_report_t, stepper_get_task_t);
 void stepper_start();
 
-#define SHORTEST_TICK 100 // TODO: Determine this experimentally
+#define SHORTEST_TICK 100  // TODO: Determine this experimentally
 #define LONGEST_TICK 10280 // TODO: Calculate this based on hardware defines

@@ -39,4 +39,5 @@
         "srvc",
         "txpower"
     ],
+    "editor.formatOnSave": true,
 }

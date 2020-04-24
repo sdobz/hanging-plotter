@@ -15,6 +15,8 @@
 #define RMT_BUFFER_SIZE 8  // number of rmt_item32_t to store in buffer, note 2 steps per item
 #define RMT_BUFFER_COUNT 2 // 2 framebuffers
 
+#define STEPPER_TASK_BUF RMT_BUFFER_SIZE *RMT_BUFFER_COUNT
+
 #define RMT_DIV 255
 #define RMT_HZ APB_CLK_FREQ
 #define US_PER_SEC 1000000
@@ -24,10 +26,13 @@
 
 #define RMT_SOURCE_CLK(select) ((select == RMT_BASECLK_REF) ? (RMT_SOURCE_CLK_REF) : (RMT_SOUCCE_CLK_APB))
 
+#define STEPPER_TASK(stepper) stepper_tasks[stepper->_task_index]
+#define STEPS_REMAINING(stepper) STEPPER_TASK(stepper).steps[stepper->_index]
+
 // Spinlock for protecting concurrent register-level access only
 static portMUX_TYPE stepper_spinlock = portMUX_INITIALIZER_UNLOCKED;
-#define STEPPER_LOCK()  portENTER_CRITICAL_SAFE(&stepper_spinlock)
-#define STEPPER_UNLOCK()   portEXIT_CRITICAL_SAFE(&stepper_spinlock)
+#define STEPPER_LOCK() portENTER_CRITICAL_SAFE(&stepper_spinlock)
+#define STEPPER_UNLOCK() portEXIT_CRITICAL_SAFE(&stepper_spinlock)
 
 static uint8_t step_seq[] = {
     0b0001,
@@ -40,6 +45,7 @@ static uint8_t step_seq[] = {
     0b1001};
 
 static rmt_item32_t end_marker = {{{0, 0, 0, 0}}};
+static stepper_task_t end_task = {{0}, 0};
 
 typedef struct
 {
@@ -48,27 +54,39 @@ typedef struct
 
     // Absolute step counter, may wrap on multiples of sizeof(step_seq)
     int32_t _abs_steps;
-    // How many steps left on executing this plan
-    uint16_t _steps_remaining;
-    // How long to wait between steps for this segment of the plan
+
+    // How long to wait between steps for this task
     int32_t _ticks_per_step;
-    // -1 or 1 depending on which sign the plan says
+    // -1 or 1 depending on the task
     int8_t _step_dir;
+    uint16_t _steps_remaining;
+    // Idea: step multiplier. Is small number, 0, 1, 2 etc
+    // While ticks_per_step is too high the multiplier is incremented
+    // ticks per step is shifted down by the multiplier
+    // steps remaining is shifted up by the multiplier
+    // a step is only taken if steps_remaining & (? << multiplier)
+    // Issue: how to ensure exactitude?
+    // Steps remaining could be "1" for a 0 step
+
     // Which fraction of the hardware buffer to write to next
     uint8_t _buffer_segment;
-    // A pointer to the stepper_task steps for this stepper
-    int32_t *_planned_steps;
-} stepper_state_t;
+    uint8_t _index;
+    uint8_t _task_index;
 
-#define DEBUG_STEPPER(stepper) DEBUG_PRINT(      \
-    "ch: %d abs: %d pln: %d rem: %d clk: %d dir: %d seg: %d\n", \
-    stepper->_rmt_channel[0], \
-    stepper->_abs_steps,                         \
-    *stepper->_planned_steps, \
-    stepper->_steps_remaining,                   \
-    stepper->_ticks_per_step,                      \
-    stepper->_step_dir,                          \
+#if defined(DEBUG) && DEBUG > 0
+    char _debug_buffers[RMT_BUFFER_COUNT][RMT_BUFFER_SIZE * 2 + 1];
+#endif
+} stepper_state_t;
+/*
+#define DEBUG_STEPPER(stepper) DEBUG_PRINT(             \
+    "ch: %d abs: %d rem: %d clk: %d dir: %d seg: %d\n", \
+    stepper->_rmt_channel[0],                           \
+    stepper->_abs_steps,                                \
+    STEPS_REMAINING(stepper),                           \
+    stepper->_ticks_per_step,                           \
+    stepper->_step_dir,                                 \
     stepper->_buffer_segment)
+*/
 
 static stepper_state_t stepper_state[NUM_STEPPERS];
 static stepper_state_t *stepper_channel[RMT_CHANNEL_MAX];
@@ -77,23 +95,113 @@ static stepper_state_t *stepper_channel[RMT_CHANNEL_MAX];
 static intr_handle_t gRMT_intr_handle = NULL;
 static rmt_hal_context_t hal;
 // How many steppers have run out of steps and need a plan
-static uint8_t steppers_with_tasks;
-static stepper_task_t stepper_task;
+// TODO: How to determine the maximum size of this buffer?
+static stepper_task_t stepper_tasks[STEPPER_TASK_BUF];
+static uint8_t stepper_task_active[STEPPER_TASK_BUF];
 
 static stepper_position_report_t stepper_position_reporter;
 // Calls an external system to consume another task
 static stepper_get_task_t stepper_get_task;
 
+#if defined(DEBUG) && DEBUG > 0
+
+static char step_dir_debug[] = {'v', '-', '^'};
+
+char stepper_task_char(stepper_state_t *stepper, uint8_t task_index)
+{
+    if (stepper->_task_index == task_index)
+    {
+        return '*';
+    }
+
+    stepper_task_t *task = &stepper_tasks[task_index];
+    if (task->duration == 0)
+    {
+        return ' ';
+    }
+
+    bool me;
+    bool them;
+    for (size_t s = 0; s < NUM_STEPPERS; s++)
+    {
+        if (task->steps[s] != 0)
+        {
+            if (&stepper_state[s] == stepper)
+            {
+                me = true;
+            }
+            else
+            {
+                them = true;
+            }
+        }
+    }
+
+    if (me && them)
+    {
+        return '%';
+    }
+    else if (me)
+    {
+        return 'o';
+    }
+    else if (them)
+    {
+        return 'x';
+    }
+    return '0';
+}
+
+void stepper_debug(stepper_state_t *stepper)
+{
+    // Task legend:
+    // % - both steppers
+    // x - other stepper
+    // * - current stepper
+    //   - duration 0
+    // 0 - duration and 0 steps
+    // ! - duration 0 with steps
+
+    /*
+[0]    123 ^ ( 1233) [ /- ]> \| < [   %xxx    ]
+*/
+    DEBUG_PRINT("[%d] %6d %3d%c (%5d)",
+                stepper->_index,
+                stepper->_abs_steps,
+                STEPS_REMAINING(stepper),
+                step_dir_debug[stepper->_step_dir + 1],
+                stepper->_ticks_per_step);
+
+    for (size_t b = 0; b < RMT_BUFFER_COUNT; b++)
+    {
+        DEBUG_PRINT(" %c %s %c",
+                    b == stepper->_buffer_segment ? '>' : '[',
+                    stepper->_debug_buffers[b],
+                    b == stepper->_buffer_segment ? '<' : ']');
+    }
+    DEBUG_PRINT(" { ");
+    for (size_t t = 0; t < STEPPER_TASK_BUF; t++)
+    {
+        DEBUG_PRINT("%c", stepper_task_char(stepper, t));
+    }
+    DEBUG_PRINT(" }\n");
+}
+
+#define DEBUG_STEPPER(stepper) stepper_debug(stepper)
+#else
+#define DEBUG_STEPPER(stepper)
+#endif
+
 IRAM_ATTR void stepper_isr(void *arg);
 void stepper_init_one(stepper_state_t *stepper, gpio_num_t pins[NUM_PINS], rmt_channel_t channels[NUM_PINS]);
-
 
 void stepper_init(gpio_num_t pins[NUM_STEPPERS][NUM_PINS], rmt_channel_t channels[NUM_STEPPERS][NUM_PINS], stepper_position_report_t r, stepper_get_task_t step_getter)
 {
     stepper_position_reporter = r;
     stepper_get_task = step_getter;
-    for (size_t s=0;s<NUM_STEPPERS;s++) {
-        stepper_state[s]._planned_steps = &stepper_task.steps[s];
+    for (size_t s = 0; s < NUM_STEPPERS; s++)
+    {
+        stepper_state[s]._index = s;
         stepper_init_one(&stepper_state[s], pins[s], channels[s]);
     }
 }
@@ -147,49 +255,80 @@ void stepper_init_one(stepper_state_t *stepper, gpio_num_t pins[NUM_PINS], rmt_c
     STEPPER_UNLOCK();
 }
 
+// Updates stepper state for tasks
+void stepper_setup_task(stepper_state_t *stepper)
+{
+    if (STEPPER_TASK(stepper).duration == 0)
+    {
+        return;
+    }
+
+    // Mark task active for this stepper
+    stepper_task_active[stepper->_task_index] |= (1 << stepper->_index);
+    if (STEPS_REMAINING(stepper) == 0)
+    {
+        STEPS_REMAINING(stepper) = 100;
+        stepper->_step_dir = 0;
+    }
+    else
+    {
+        stepper->_step_dir = STEPS_REMAINING(stepper) > 0 ? 1 : -1;
+        STEPS_REMAINING(stepper) = abs(STEPS_REMAINING(stepper));
+    }
+    stepper->_ticks_per_step = US_TO_CYCLES(STEPPER_TASK(stepper).duration / STEPS_REMAINING(stepper));
+    if (stepper->_ticks_per_step > LONGEST_TICK)
+    {
+        //DEBUG_PRINT("ERR: step too long\n");
+        stepper->_ticks_per_step = LONGEST_TICK;
+        //abort();
+    }
+    else if (stepper->_ticks_per_step < SHORTEST_TICK)
+    {
+        //DEBUG_PRINT("ERR: step too short\n");
+        stepper->_ticks_per_step = SHORTEST_TICK;
+        //abort();
+    }
+}
+
 void stepper_update_task(stepper_state_t *stepper)
 {
     STEPPER_LOCK();
-    if (steppers_with_tasks == 0) {
-        // The first stepper to interrupt fills out the task
-        stepper_task = *stepper_get_task();
-        // TODO: assert stepper_task is in acceptable error ranges wrt steps vs duration
-        steppers_with_tasks = NUM_STEPPERS;
-    }
-    // The remaining steppers use the plan loaded by the first stepper
-    steppers_with_tasks--;
-    int32_t planned_steps = *stepper->_planned_steps;
 
-    if (stepper_task.duration != 0) {
-        if (planned_steps != 0) {
-            stepper->_steps_remaining = abs(planned_steps);
-        }
-        else  {
-            // If steps are 0 the channel still has to wait duration
-            // Make up some reasonable number of steps
-            // TODO: deal with error in stepper counts
-            stepper->_steps_remaining = 100;
-        }
-        stepper->_ticks_per_step = US_TO_CYCLES(stepper_task.duration/stepper->_steps_remaining);
-        if (stepper->_ticks_per_step > LONGEST_TICK) {
-            DEBUG_PRINT("ERR: too many steps\n");
-            abort();
-        }
-        stepper->_step_dir = planned_steps > 0 ? 1 : planned_steps < 0 ? -1 : 0;
+    // Mark task complete for this stepper
+    stepper_task_active[stepper->_task_index] &= ~(1 << stepper->_index);
+
+    if (!stepper_task_active[stepper->_task_index])
+    {
+        // Clear the old task
+        STEPPER_TASK(stepper) = end_task;
     }
+
+    // Looping increment to the next step
+    stepper->_task_index = stepper->_task_index == STEPPER_TASK_BUF - 1 ? 0 : stepper->_task_index + 1;
+
+    if (!stepper_task_active[stepper->_task_index])
+    {
+        DEBUG_PRINT("Stepper %d: Getting new task\n", stepper->_index);
+        STEPPER_TASK(stepper) = *stepper_get_task();
+    }
+
+    stepper_setup_task(stepper);
     STEPPER_UNLOCK();
 }
 
 uint8_t stepper_pop_mask(stepper_state_t *stepper)
 {
     uint8_t mask = step_seq[stepper->_abs_steps & 0x7];
-
-    if (stepper->_steps_remaining != 0)
+    if (STEPS_REMAINING(stepper) == 0)
     {
-        stepper->_abs_steps += stepper->_step_dir;
-        stepper->_steps_remaining--;
+        return mask;
     }
-    else
+
+    stepper->_abs_steps += stepper->_step_dir;
+    STEPS_REMAINING(stepper)
+    --;
+
+    if (STEPS_REMAINING(stepper) == 0)
     {
         stepper_update_task(stepper);
     }
@@ -199,7 +338,6 @@ uint8_t stepper_pop_mask(stepper_state_t *stepper)
 
 void stepper_fill_buffer(stepper_state_t *stepper)
 {
-    DEBUG_STEPPER(stepper);
     rmt_item32_t src;
     uint8_t mask0;
     uint8_t mask1;
@@ -209,9 +347,15 @@ void stepper_fill_buffer(stepper_state_t *stepper)
     {
         mask0 = stepper_pop_mask(stepper);
         ticks0 = stepper->_ticks_per_step;
-        // DEBUG_STEPPER(stepper);
+// DEBUG_STEPPER(stepper);
+#if defined(DEBUG) && DEBUG > 0
+        stepper->_debug_buffers[stepper->_buffer_segment][offset * 2] = (stepper->_abs_steps & 0x7) + 48;
+#endif
         mask1 = stepper_pop_mask(stepper);
         ticks1 = stepper->_ticks_per_step;
+#if defined(DEBUG) && DEBUG > 0
+        stepper->_debug_buffers[stepper->_buffer_segment][offset * 2 + 1] = (stepper->_abs_steps & 0x7) + 48;
+#endif
         // DEBUG_STEPPER(stepper);
         for (size_t i = 0; i < NUM_PINS; i++)
         {
@@ -224,9 +368,9 @@ void stepper_fill_buffer(stepper_state_t *stepper)
         // TODO: manage channels for step/direction interface
     }
 
-    if (stepper->_steps_remaining == 0)
+    if (STEPPER_TASK(stepper).duration == 0)
     {
-        // pop_mask would have refilled steps_remaining if any remained, the channel is done
+        DEBUG_PRINT("Stepper %d stopping after this round\n", stepper->_index);
         for (size_t i = 0; i < NUM_PINS; i++)
         {
             // Stop looping after this buffer
@@ -234,6 +378,7 @@ void stepper_fill_buffer(stepper_state_t *stepper)
         }
     }
 
+    DEBUG_STEPPER(stepper);
     // Wrapping increment the buffer
     stepper->_buffer_segment = stepper->_buffer_segment == RMT_BUFFER_COUNT - 1 ? 0 : stepper->_buffer_segment + 1;
 }
@@ -245,7 +390,8 @@ IRAM_ATTR void stepper_isr(void *arg)
 
     // Tx end interrupt
     status = rmt_ll_get_tx_end_interrupt_status(hal.regs);
-    while (status) {
+    while (status)
+    {
         channel = __builtin_ffs(status) - 1;
         status &= ~(1 << channel);
 
@@ -254,12 +400,15 @@ IRAM_ATTR void stepper_isr(void *arg)
 
     // Tx thres interrupt
     status = rmt_ll_get_tx_thres_interrupt_status(hal.regs);
-    while (status) {
+    while (status)
+    {
         channel = __builtin_ffs(status) - 1;
         status &= ~(1 << channel);
 
+        //DEBUG_PRINT("Interrupt! CH: %d\n", channel);
         stepper_state_t *stepper = stepper_channel[channel];
-        if (stepper) {
+        if (stepper)
+        {
             stepper_fill_buffer(stepper);
         }
 
@@ -268,7 +417,8 @@ IRAM_ATTR void stepper_isr(void *arg)
 
     // Err interrupt
     status = rmt_ll_get_err_interrupt_status(hal.regs);
-    while (status) {
+    while (status)
+    {
         channel = __builtin_ffs(status) - 1;
         status &= ~(1 << channel);
         rmt_ll_clear_err_interrupt(hal.regs, channel);
@@ -277,35 +427,44 @@ IRAM_ATTR void stepper_isr(void *arg)
 
 void stepper_prep_tx(stepper_state_t *stepper)
 {
+    DEBUG_PRINT("Stepper prepping: %d\n", stepper->_index);
+
+    stepper->_task_index = 0;
     stepper->_buffer_segment = 0;
-    stepper->_steps_remaining = 0;
-    size_t i;
-    for (i = 0; i < RMT_BUFFER_COUNT; i++) {
-        stepper_fill_buffer(stepper);
-    }
-    for (i = 0; i < NUM_PINS; i++)
+    stepper_setup_task(stepper);
+    for (size_t i = 0; i < RMT_BUFFER_COUNT; i++)
     {
-        // Starts transmission
-        rmt_ll_reset_tx_pointer(hal.regs, stepper->_rmt_channel[i]);
-        rmt_ll_enable_tx_cyclic(hal.regs, stepper->_rmt_channel[i], true);
+#if defined(DEBUG) && DEBUG > 0
+        stepper->_debug_buffers[i][RMT_BUFFER_SIZE * 2 + 1] = '\0';
+#endif
+        stepper_fill_buffer(stepper);
     }
 }
 
 void stepper_start()
 {
-    STEPPER_LOCK();
-    steppers_with_tasks = 0;
-    STEPPER_UNLOCK();
+    for (size_t t = 0; t < STEPPER_TASK_BUF; t++)
+    {
+        stepper_tasks[t] = end_task;
+    }
+    stepper_tasks[0] = *stepper_get_task();
+
     size_t s;
     for (s = 0; s < NUM_STEPPERS; s++)
     {
         stepper_prep_tx(&stepper_state[s]);
     }
 
-    for (s = 0; s < NUM_STEPPERS; s++) {
+    stepper_state_t *stepper;
+    for (s = 0; s < NUM_STEPPERS; s++)
+    {
+        stepper = &stepper_state[s];
         for (size_t i = 0; i < NUM_PINS; i++)
         {
-            rmt_ll_start_tx(hal.regs, stepper_state[s]._rmt_channel[i]);
+            // Starts transmission
+            rmt_ll_reset_tx_pointer(hal.regs, stepper->_rmt_channel[i]);
+            rmt_ll_enable_tx_cyclic(hal.regs, stepper->_rmt_channel[i], true);
+            rmt_ll_start_tx(hal.regs, stepper->_rmt_channel[i]);
         }
     }
 }
