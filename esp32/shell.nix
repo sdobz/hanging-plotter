@@ -2,11 +2,23 @@
 let 
   esp-idf = (pkgs.callPackage ./esp-idf.nix {});
   esp32-toolchain = (pkgs.callPackage ./esp32-toolchain.nix {});
+  # rust-xtensa = (pkgs.callPackage ./rust-xtensa.nix {});
+  nixpkgs-mozilla = pkgs.fetchFromGitHub {
+      owner = "mozilla";
+      repo = "nixpkgs-mozilla";
+      # commit from: 2020-2-19
+      rev = "e912ed483e980dfb4666ae0ed17845c4220e5e7c";
+      sha256 = "08fvzb8w80bkkabc1iyhzd15f4sm7ra10jn32kfch5klgl0gj3j3";
+   };
 in
+with import "${nixpkgs-mozilla.out}/rust-overlay.nix" pkgs pkgs;
   pkgs.mkShell {
     buildInputs = [ 
       esp-idf
       esp32-toolchain
+      latest.rustChannels.stable.rust
+      pkgs.cargo-generate
+      pkgs.esptool
     ];
     shellHook = ''
 set -e
