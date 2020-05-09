@@ -24,7 +24,7 @@ stdenv.mkDerivation rec {
   buildPhase = ''
     mkdir llvm_build
     cd llvm_build
-    cmake ../llvm -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="Xtensa;X86" -DCMAKE_BUILD_TYPE=Release -G "Ninja"
+    cmake ../llvm -DLLVM_INSTALL_UTILS=ON -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="Xtensa;X86" -DCMAKE_BUILD_TYPE=Release -G "Ninja"
     cmake --build .
   '';
 
@@ -36,6 +36,6 @@ stdenv.mkDerivation rec {
   meta = with stdenv.lib; {
     description = "LLVM xtensa";
     homepage = https://github.com/espressif/llvm-project;
-    license = licenses.apache2;
+    license = licenses.asl20;
   };
 }
