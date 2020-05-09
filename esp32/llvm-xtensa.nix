@@ -24,7 +24,7 @@ stdenv.mkDerivation rec {
   buildPhase = ''
     mkdir llvm_build
     cd llvm_build
-    cmake ../llvm -DLLVM_INSTALL_UTILS=ON -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="Xtensa;X86" -DCMAKE_BUILD_TYPE=Release -G "Ninja"
+    cmake ../llvm -DLLVM_ENABLE_PROJECTS="clang;libc;libclc;libcxx;libcxxabi;libunwind;lld;parallel-libs" -DLLVM_INSTALL_UTILS=ON -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="Xtensa" -DCMAKE_BUILD_TYPE=Release -G "Ninja"
     cmake --build .
   '';
 

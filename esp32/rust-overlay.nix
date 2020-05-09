@@ -41,8 +41,18 @@ let
 
 in
 {
+    rust-xtensa-src = super.fetchFromGitHub {
+        owner = "MabezDev";
+        repo = "rust-xtensa";
+        # rust 1.42++
+        rev  = "25ae59a82487b8249b05a78f00a3cc35d9ac9959";
+        fetchSubmodules = true;
+        sha256 = "1xr8rayvvinf1vahzfchlkpspa5f2nxic1j2y4dgdnnzb3rkvkg5";
+    };
+    # override the rustc package attrs
     rustc-xtensa = (super.rustc.override {
         rustPlatform = bootstrapPlatform;
+    # override the rustc result attrs before calling
     }).overrideAttrs ( old: rec {
         pname = "rustc-xtensa";
 
@@ -54,14 +64,7 @@ in
 
         nativeBuildInputs = old.nativeBuildInputs; # ++ [ super.breakpointHook ];
 
-        src = super.fetchFromGitHub {
-            owner = "MabezDev";
-            repo = "rust-xtensa";
-            # rust 1.42++
-            rev  = "25ae59a82487b8249b05a78f00a3cc35d9ac9959";
-            fetchSubmodules = true;
-            sha256 = "1xr8rayvvinf1vahzfchlkpspa5f2nxic1j2y4dgdnnzb3rkvkg5";
-        };
+        src = self.rust-xtensa-src;
         
         configureFlags = 
             (lists.remove "--enable-llvm-link-shared"
@@ -69,7 +72,9 @@ in
             "--set=build.rustfmt=${super.rustfmt}/bin/rustfmt"
             "--llvm-root=${llvm-xtensa}"
             "--experimental-targets=Xtensa"
-            "--release-channel=beta"
+            # Nightly because xargo (which compiles a new core) can only build on nightly
+            # xargo replace with cargo xbuild
+            "--release-channel=nightly"
         ];
 
         cargoDeps = fetchCargoTarball {
