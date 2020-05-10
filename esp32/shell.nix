@@ -1,12 +1,49 @@
 let
+  # idf-package-overlay = self: super:
+  #   # Within the overlay we use a recursive set, though I think we can use `self` as well.
+  #   rec {
+  #     # nix-shell -p python.pkgs.my_stuff
+  #     python2 = super.python2.override {
+  #       # Careful, we're using a different self and super here!
+  #       packageOverrides = self: super: {
+  #         pyparsing = super.buildPythonPackage rec {
+  #           pname = "pyparsing";
+  #           version = "2.3.1";
+  #           doCheck = false;
+  #           src = super.fetchPypi {
+  #             inherit pname version;
+  #             sha256 = "0yk6xl885b91dmlhlsap7x78hk2rdr879fln9anbq6k4ca42djb6";
+  #           };
+  #         };
+  #       };
+  #     };
+  #   };
+  pythonPackageOverrides = self: super: {
+    pyparsing = super.buildPythonPackage rec {
+      pname = "pyparsing";
+      version = "2.3.1";
+      doCheck = false;
+      src = super.fetchPypi {
+        inherit pname version;
+        sha256 = "0yk6xl885b91dmlhlsap7x78hk2rdr879fln9anbq6k4ca42djb6";
+      };
+    };
+  };
+  
+ idf-package-overlay = self: super: {
+    python2 = super.python2.override {
+    packageOverrides = pythonPackageOverrides;
+    };
+ };
+
   pkgs = import <unstable> {
     overlays = [
-      (import ./rust-overlay.nix)
+      idf-package-overlay
     ];
   };
 in let
   esp-idf = (pkgs.callPackage ./esp-idf.nix {});
-  esp32-toolchain = (pkgs.callPackage ./esp32-toolchain.nix {});
+  esp32-toolchain = (pkgs.callPackage ./esp32-toolchain-4.0.nix {});
   llvm-xtensa = (pkgs.callPackage ./llvm-xtensa.nix {});
   stdenv = pkgs.stdenv;
   rust = pkgs.rust;
@@ -43,7 +80,7 @@ in let
   #   sha256 = "0jhggcwr852c4cqb4qv9a9c6avnjrinjnyzgfi7sx7n1piyaad43";
   # };
 
-  nightlyRustPlatform =
+  nightlyRust =
     let
       nightly = (moz-pkgs.rustChannelOf {
         date = "2020-03-12";
@@ -51,51 +88,50 @@ in let
       });
       # include rust-src component
       # https://github.com/mozilla/nixpkgs-mozilla/issues/51#issuecomment-386079415
-      rust = nightly.rust.override {
+    in nightly.rust.override {
         extensions = [
           "rust-std"
           "rust-src"
         ];
       };
-    in
-    pkgs.makeRustPlatform {
-      rustc = rust;
-      cargo = rust;
-    };
+  nightlyRustPlatform = pkgs.makeRustPlatform {
+    rustc = nightlyRust;
+    cargo = nightlyRust;
+  };
 
+  rust-xtensa = (pkgs.callPackage ./rust-xtensa.nix {
+    #rustPlatform = nightlyRustPlatform;
+  });
+  xbuild = pkgs.callPackage ./xbuild.nix {
+    rustPlatform = pkgs.makeRustPlatform rust-xtensa;
+  };
   xargo = pkgs.callPackage ./xargo.nix {
-    rustPlatform = nightlyRustPlatform;
+    rustPlatform = pkgs.makeRustPlatform rust-xtensa;
   };
 in
 pkgs.mkShell {
-
     buildInputs = [ 
       esp-idf
       esp32-toolchain
       xargo
-      # bindgen
-      pkgs.rustc-xtensa
-      # pkgs.rustup
+      xbuild
+      rust-xtensa.rustc
+      pkgs.rustfmt
     ];
 
     shellHook = ''
 set -e
 
-# rustup toolchain link xtensa "${pkgs.rustc-xtensa}"
-
-
-export XARGO_RUST_SRC="${pkgs.rust-xtensa-src}/src"
+export XARGO_RUST_SRC="${rust-xtensa.rust-src}/src"
 export LLVM_XTENSA="${llvm-xtensa}"
 export LIBCLANG_PATH="${llvm-xtensa}/lib"
 
 export IDF_PATH=${esp-idf}
 export IDF_TOOLS_PATH=${esp32-toolchain}
 
-# ln -s $IDF_PATH ./esp32-hello/esp-idf
-
 export CFLAGS_COMPILE="-Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration"
 export OPENOCD_SCRIPTS=$IDF_TOOLS_PATH/tools/openocd-esp32/share/openocd/scripts
 export NIX_CFLAGS_LINK=-lncurses
-export PATH=$PATH:~/.cargo/bin:$IDF_PATH/tools:$IDF_PATH/components/esptool_py/esptool:$IDF_TOOLS_PATH/tools/esp32ulp-elf/bin:$IDF_TOOLS_PATH/tools/openocd-esp32/bin:$IDF_TOOLS_PATH/tools/xtensa-esp32-elf/bin
+export PATH=$PATH:~/.cargo/bin:${esp-idf}/tools:${esp-idf}/components/esptool_py/esptool:$IDF_TOOLS_PATH/tools/esp32ulp-elf/bin:$IDF_TOOLS_PATH/tools/openocd-esp32/bin:$IDF_TOOLS_PATH/tools/xtensa-esp32-elf/bin
     '';
 }

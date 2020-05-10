@@ -1,153 +1,129 @@
-{ stdenv, fetchFromGitHub, pkgs, rustPlatform, cacert }:
+{pkgs}:
 let
-  llvm-xtensa = (pkgs.callPackage ./llvm-xtensa.nix {});
-  lib = stdenv.lib;
+    llvm-xtensa = (pkgs.callPackage ./llvm-xtensa.nix {});
+    lib = pkgs.lib;
+    lists = lib.lists;
+    fetchCargoTarball = pkgs.callPackage <unstable/pkgs/build-support/rust/fetchCargoTarball.nix> {};
 
-  nixpkgs-mozilla = pkgs.fetchFromGitHub {
-    owner = "mozilla";
-    repo = "nixpkgs-mozilla";
-    # commit from: 2020-2-19
-    rev = "e912ed483e980dfb4666ae0ed17845c4220e5e7c";
-    sha256 = "08fvzb8w80bkkabc1iyhzd15f4sm7ra10jn32kfch5klgl0gj3j3";
-  };
-
-  rust = {
     toRustTarget = platform: with platform.parsed; let
-      cpu_ = {
-        "armv7a" = "armv7";
-        "armv7l" = "armv7";
-        "armv6l" = "arm";
-      }.${cpu.name} or platform.rustc.arch or cpu.name;
-    in platform.rustc.config
-      or "${cpu_}-${vendor.name}-${kernel.name}${lib.optionalString (abi.name != "unknown") "-${abi.name}"}";
-  };
+        cpu_ = {
+            "armv7a" = "armv7";
+            "armv7l" = "armv7";
+            "armv6l" = "arm";
+        }.${cpu.name} or platform.rustc.arch or cpu.name;
+        in platform.rustc.config
+        or "${cpu_}-${vendor.name}-${kernel.name}${lib.optionalString (abi.name != "unknown") "-${abi.name}"}";
 
-  pkgsBuildBuild = pkgs;
-  pkgsBuildHost = pkgs;
-  pkgsBuildTarget = pkgs;
+    # bootstrap
+    date = "2020-03-12";
+    # from rust-xtensa github
+    version = "1.44.0";
 
+    rustBinary = pkgs.callPackage <unstable/pkgs/development/compilers/rust/binary.nix> rec {
+        # Noted while installing out of band
+        # https://static.rust-lang.org/dist/2020-03-12/rust-std-beta-x86_64-unknown-linux-gnu.tar.xz
+        # https://static.rust-lang.org/dist/2020-03-12/rustc-beta-x86_64-unknown-linux-gnu.tar.xz
+        # https://static.rust-lang.org/dist/2020-03-12/cargo-beta-x86_64-unknown-linux-gnu.tar.xz
+        # https://static.rust-lang.org/dist/2020-01-31/rustfmt-nightly-x86_64-unknown-linux-gnu.tar.xz
 
-  inherit (stdenv.lib) optionals optional optionalString;
+        # noted by inspecting https://static.rust-lang.org/dist/2020-03-12
+        # version = "1.42.0";
+        # version = "nightly";
+        version = "beta";
 
+        platform = toRustTarget pkgs.stdenv.hostPlatform;
+        versionType = "bootstrap";
+
+        src = pkgs.fetchurl {
+            url = "https://static.rust-lang.org/dist/${date}/rust-${version}-${platform}.tar.gz";
+            # sha256 = "0llhg1xsyvww776d1wqaxaipm4f566hw1xyy778dhcwakjnhf7kx"; # 1.42.0
+            # sha256 = "0jhggcwr852c4cqb4qv9a9c6avnjrinjnyzgfi7sx7n1piyaad43"; # nightly
+            sha256 = "1cv402wp9dx6dqd9slc8wqsqkrb7kc66n0bkkmvgjx01n1jhv7n5"; # beta
+        };
+    };
+    bootstrapPlatform = pkgs.makeRustPlatform rustBinary;
+
+    src = pkgs.fetchFromGitHub {
+        owner = "MabezDev";
+        repo = "rust-xtensa";
+        # rust 1.42++
+        rev  = "25ae59a82487b8249b05a78f00a3cc35d9ac9959";
+        fetchSubmodules = true;
+        sha256 = "1xr8rayvvinf1vahzfchlkpspa5f2nxic1j2y4dgdnnzb3rkvkg5";
+    };
 in
-with import "${nixpkgs-mozilla.out}/rust-overlay.nix" pkgs pkgs;
-stdenv.mkDerivation rec {
-  name = "rust-xtensa";
-  version = "25ae59a82487b8249b05a78f00a3cc35d9ac9959";
+rec {
+    rust-src = src;
+    
+    # cargo = (pkgs.cargo.override {
+    #     rustPlatform = bootstrapPlatform;
+    #     inherit rustc;
+    # }).overrideAttrs (old: {
+    #     cargoVendirDir = builtins.trace old null;
+    #     version = version;
+    #     src = rust-src;
+    # });
+    cargo = (pkgs.callPackage <unstable/pkgs/development/compilers/rust/cargo.nix> {
+        rustPlatform = bootstrapPlatform;
+        inherit (pkgs.darwin.apple_sdk.frameworks) Security CoreFoundation; 
+        inherit rustc;
+    }).overrideAttrs(old: rec {
+        name = "cargo-xtensa-${version}";
+        inherit version src;
+        cargoDeps = fetchCargoTarball {
+            inherit name;
+            inherit src;
+            sourceRoot = null;
+            srcs = null;
+            patches = [];
+            sha256 = "1w5fz966vf09p87xbxc5pm9xq4f1gx8a2vj7fskx30skkwb97d13";
+        };
 
-  src = fetchFromGitHub {
-    owner = "MabezDev";
-    repo = "rust-xtensa";
-    rev  = "${version}";
-    fetchSubmodules = true;
-    sha256 = "1xr8rayvvinf1vahzfchlkpspa5f2nxic1j2y4dgdnnzb3rkvkg5";
-  };
+        # cargoVendorDir = builtins.trace "${cargoDeps}" null;
+        postConfigure = ''
+            unpackFile "$cargoDeps"
+            mv $(stripHash $cargoDeps) vendor
+            # export VERBOSE=1
+        '';
+    });
+    rustc = (pkgs.rustc.override {
+        rustPlatform = bootstrapPlatform;
+    # override the rustc result attrs before calling
+    }).overrideAttrs ( old: rec {
+        pname = "rustc-xtensa";
+        inherit version src;
 
-  # rustc complains about modified source files otherwise
-  dontUpdateAutotoolsGnuConfigScripts = true;
+        llvmSharedForBuild = llvm-xtensa;
+        llvmSharedForHost = llvm-xtensa;
+        llvmSharedForTarget = llvm-xtensa;
+        llvmShared = llvm-xtensa;
+        patches = [];
 
-  stripDebugList = [ "bin" ];
+        configureFlags = 
+            (lists.remove "--enable-llvm-link-shared"
+            (lists.remove "--release-channel=stable" old.configureFlags)) ++ [
+            "--set=build.rustfmt=${pkgs.rustfmt}/bin/rustfmt"
+            "--llvm-root=${llvm-xtensa}"
+            "--experimental-targets=Xtensa"
+            # Nightly because xargo (which compiles a new core) can only build on nightly
+            # xargo replace with cargo xbuild
+            "--release-channel=nightly"
+        ];
 
-  # fetchcargo = pkgs.callPackage <nixpkgs/pkgs/build-support/rust/fetchcargo.nix> {};
-  # cargoDeps = fetchcargo {
-  #   inherit name;
-  #   sourceRoot = null;
-  #   srcs = null;
-  #   patches = [];
-  #   sha256 = "0000000000000000000000000000000000000000000000000000";
-  # };
-  
-  # postUnpack = ''
-  #   unpackFile "$cargoDeps"
-  #   cargoDepsCopy=$(stripHash $(basename $cargoDeps))
-  #   ls
-  # '';
+        cargoDeps = fetchCargoTarball {
+            inherit pname;
+            inherit src;
+            sourceRoot = null;
+            srcs = null;
+            patches = [];
+            sha256 = "0z4mb33f72ik8a1k3ckbg3rf6p0403knx5mlagib0fs2gdswg9w5";
+        };
 
-  RUSTFLAGS = "-Ccodegen-units=10";
-  CARGO_HTTP_CAINFO = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-  SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-    # We need rust to build rust. If we don't provide it, configure will try to download it.
-  # Reference: https://github.com/rust-lang/rust/blob/master/src/bootstrap/configure.py
-  configureFlags = let
-    setBuild  = "--set=target.${rust.toRustTarget stdenv.buildPlatform}";
-    setHost   = "--set=target.${rust.toRustTarget stdenv.hostPlatform}";
-    setTarget = "--set=target.${rust.toRustTarget stdenv.targetPlatform}";
-    ccForBuild  = "${pkgsBuildBuild.targetPackages.stdenv.cc}/bin/${pkgsBuildBuild.targetPackages.stdenv.cc.targetPrefix}cc";
-    cxxForBuild = "${pkgsBuildBuild.targetPackages.stdenv.cc}/bin/${pkgsBuildBuild.targetPackages.stdenv.cc.targetPrefix}c++";
-    ccForHost  = "${pkgsBuildHost.targetPackages.stdenv.cc}/bin/${pkgsBuildHost.targetPackages.stdenv.cc.targetPrefix}cc";
-    cxxForHost = "${pkgsBuildHost.targetPackages.stdenv.cc}/bin/${pkgsBuildHost.targetPackages.stdenv.cc.targetPrefix}c++";
-    ccForTarget  = "${pkgsBuildTarget.targetPackages.stdenv.cc}/bin/${pkgsBuildTarget.targetPackages.stdenv.cc.targetPrefix}cc";
-    cxxForTarget = "${pkgsBuildTarget.targetPackages.stdenv.cc}/bin/${pkgsBuildTarget.targetPackages.stdenv.cc.targetPrefix}c++";
-
-    rustPkgs = latest.rustChannels.stable;
-  in [
-    "--release-channel=stable"
-    "--enable-local-rebuild"
-    "--set=build.rustc=${rustPkgs.rustc}/bin/rustc"
-    "--set=build.cargo=${rustPkgs.cargo}/bin/cargo"
-    "--set=build.rustfmt=${pkgs.rustfmt}/bin/rustfmt"
-    "--enable-rpath"
-    "--enable-vendor"
-    "--build=${rust.toRustTarget stdenv.buildPlatform}"
-    "--host=${rust.toRustTarget stdenv.hostPlatform}"
-    "--target=${rust.toRustTarget stdenv.targetPlatform}"
-    "--llvm-root=${llvm-xtensa}"
-
-    "${setBuild}.cc=${ccForBuild}"
-    "${setHost}.cc=${ccForHost}"
-    "${setTarget}.cc=${ccForTarget}"
-
-    "${setBuild}.linker=${ccForBuild}"
-    "${setHost}.linker=${ccForHost}"
-    "${setTarget}.linker=${ccForTarget}"
-
-    "${setBuild}.cxx=${cxxForBuild}"
-    "${setHost}.cxx=${cxxForHost}"
-    "${setTarget}.cxx=${cxxForTarget}"
-  ] ++ optionals stdenv.isLinux [
-    "--enable-profiler" # build libprofiler_builtins
-  ];
-
-  postConfigure = ''
-    substituteInPlace Makefile \
-      --replace 'BOOTSTRAP_ARGS :=' 'BOOTSTRAP_ARGS := --jobs $(NIX_BUILD_CORES)'
-  '';
-  postPatch = ''
-    patchShebangs src/etc
-
-    rm -rf src/llvm
-
-    # Fix the configure script to not require curl as we won't use it
-    sed -i configure \
-      -e '/probe_need CFG_CURL curl/d'
-    # Useful debugging parameter
-    export VERBOSE=1
-  '';
-
-  nativeBuildInputs = with pkgs; [
-    file python3 rustc cmake
-    which libffi removeReferencesTo pkgconfig
-  ];
-  
-  buildInputs = [
-    pkgs.openssl
-    llvm-xtensa
-  ];
-
-  # rustc unfortunately needs cmake to compile llvm-rt but doesn't
-  # use it for the normal build. This disables cmake in Nix.
-  dontUseCmakeConfigure = true;
-
-  outputs = [ "out" "man" "doc" ];
-  setOutputFlags = false;
-
-  configurePlatforms = [];
-
-  requiredSystemFeatures = [ "big-parallel" ];
-
-  meta = with stdenv.lib; {
-    description = "rust xtensa";
-    homepage = https://github.com/espressif/llvm-project;
-    license = licenses.apache;
-  };
+        postConfigure = ''
+            ${old.postConfigure}
+            unpackFile "$cargoDeps"
+            mv $(stripHash $cargoDeps) vendor
+            # export VERBOSE=1
+        '';
+    });
 }
