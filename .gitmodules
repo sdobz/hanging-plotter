@@ -4,3 +4,6 @@
 [submodule "arduino/logic_analyzer"]
 	path = arduino/logic_analyzer
 	url = https://github.com/aster94/logic-analyzer
+[submodule "esp32/esp32/esp32-hello"]
+	path = esp32/esp32-hello
+	url = git@github.com:sdobz/esp32-hello.git

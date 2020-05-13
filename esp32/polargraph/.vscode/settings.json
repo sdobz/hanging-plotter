@@ -28,7 +28,8 @@
         "rmt_types.h": "c",
         "rmt_caps.h": "c",
         "stdio.h": "c",
-        "periph_ctrl.h": "c"
+        "periph_ctrl.h": "c",
+        "esp_gatt_common_api.h": "c"
     },
     "cSpell.words": [
         "GPIO",
