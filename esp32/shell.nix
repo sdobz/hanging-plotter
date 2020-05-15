@@ -40,6 +40,7 @@ pkgs.mkShell {
       rust-esp.esp32-toolchain
       rust-esp.rust-analyzer
       pkgs.rustfmt
+      pkgs.ncurses5
     ];
 
     shellHook = ''

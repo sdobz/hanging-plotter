@@ -24,5 +24,6 @@
 			"ulonglong",
 			"ushort"
 		],
+		"editor.formatOnSave": true,
 	},
 }
