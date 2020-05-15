@@ -1,0 +1,28 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "/home/vkhougaz/projects/hanging-plotter/esp32/esp-idf"
+		},
+		{
+			"path": "/home/vkhougaz/projects/hanging-plotter/esp32/rust-esp-nix"
+		}
+	],
+	"settings": {
+		"rust-analyzer.checkOnSave.overrideCommand": [
+			"/home/vkhougaz/projects/hanging-plotter/esp32/esp32-bluetooth/rust-analyzer-check.sh"
+		],
+		"cSpell.words": [
+			"c",
+			"longlong",
+			"schar",
+			"uchar",
+			"uint",
+			"ulong",
+			"ulonglong",
+			"ushort"
+		],
+	},
+}

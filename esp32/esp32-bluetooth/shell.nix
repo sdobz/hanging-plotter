@@ -28,7 +28,11 @@ let
     ];
   };
 
-  rust-esp = pkgs.callPackage ./rust-esp-nix {};
+  rust-esp = pkgs.callPackage (builtins.fetchTarball {
+    name = "rust-esp-nix";
+    url = "https://github.com/sdobz/rust-esp-nix/archive/791e35c4822a7bdb91a2fbf7323e64255b640bd0.tar.gz";
+    sha256 = "0qp3myqpnprf7wfxxvnxpkhs3rg1d85cd9zynrhva7clgs3axnn4";
+  }) {};
 in
 pkgs.mkShell {
     buildInputs = [ 
@@ -38,27 +42,22 @@ pkgs.mkShell {
       rust-esp.cargo
       rust-esp.esp-idf
       rust-esp.esp32-toolchain
-      rust-esp.rust-analyzer
       pkgs.rustfmt
     ];
 
     shellHook = ''
-set -e
-
 ${rust-esp.env}
-export RUST_ANALYZER_PATH=${rust-esp.rust-analyzer}
 
 if ! [ -d esp-idf ]; then
   mkdir -p esp-idf
-  pushd esp-idf
+  pushd esp-idf > /dev/null
   git init
   git remote add origin https://github.com/espressif/esp-idf
   git fetch --depth 1 origin 0a03a55c1eb44a354c9ad5d91d91da371fe23f84
   git checkout FETCH_HEAD
   git submodule update --init --recursive
-  popd
+  popd > /dev/null
 fi
-IDF42_PATH=${rust-esp.esp-idf};
 IDF_PATH=$(pwd)/esp-idf
     '';
 }
