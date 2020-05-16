@@ -25,5 +25,9 @@
 			"ushort"
 		],
 		"editor.formatOnSave": true,
+		"C_Cpp.default.includePath": [
+			"${workspaceFolder:esp32-bluetooth}/build/include/*",
+			"${workspaceFolder:esp-idf}/components/**"
+		],
 	},
 }

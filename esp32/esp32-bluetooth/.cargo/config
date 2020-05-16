@@ -26,6 +26,7 @@ rustflags = [
 
   "-C", "link-arg=-Lbuild/bootloader_support", "-C", "link-arg=-lbootloader_support",
   "-C", "link-arg=-Lbuild/bt", "-C", "link-arg=-lbt",
+  "-C", "link-arg=-L../esp-idf/components/bt/controller/lib", "-C", "link-arg=-lbtdm_app",
 
   "-C", "link-arg=-Lbuild/coap", "-C", "link-arg=-lcoap",
   "-C", "link-arg=-Lbuild/console", "-C", "link-arg=-lconsole",

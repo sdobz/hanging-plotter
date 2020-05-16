@@ -42,6 +42,12 @@ const BUF_SIZE: i32 = 1024;
     }
 */
 
+macro_rules! cstr {
+    ($src:expr) => {
+        (concat!($src, "\0")).as_ptr() as *const _
+    };
+}
+
 const fn ble_uuid16_declare(value: u16) -> *const ble_uuid_t {
     &ble_uuid16_t {
         u: ble_uuid_t {
@@ -91,7 +97,7 @@ const MANUF_NAME: &str = "Apache Mynewt ESP32 devkitC\0";
 const MODEL_NUM: &str = "Mynewt HR Sensor demo\0";
 static mut HRS_HRM_HANDLE: u16 = 0;
 
-const BLE_TAG: &str = "BLE\0";
+const BLE_TAG: *const i8 = cstr!("BLE");
 
 extern "C" fn gatt_svr_chr_access_heart_rate(
     _conn_handle: u16,
@@ -165,10 +171,14 @@ extern "C" fn gatt_svr_chr_access_device_info(
 }
 
 macro_rules! esp_log {
-    ($tag:expr, $format:expr, $($arg:tt)*) => (esp_log_write(esp_log_level_t_ESP_LOG_INFO, $tag.as_ptr() as *const _, $format.as_ptr() as *const _, $($arg)*));
+    ($tag:expr, $format:expr) => (esp_log_write(esp_log_level_t_ESP_LOG_INFO, $tag, $format));
+    ($tag:expr, $format:expr, $($arg:tt)*) => (esp_log_write(esp_log_level_t_ESP_LOG_INFO, $tag, $format, $($arg)*));
 }
 
-unsafe fn gatt_svr_register_cb(ctxt: *mut ble_gatt_register_ctxt, _arg: *mut ::core::ffi::c_void) {
+unsafe extern "C" fn gatt_svr_register_cb(
+    ctxt: *mut ble_gatt_register_ctxt,
+    _arg: *mut ::core::ffi::c_void,
+) {
     let mut buf_arr: [i8; BLE_UUID_STR_LEN as usize] = [0; BLE_UUID_STR_LEN as usize];
     let buf = buf_arr.as_mut_ptr();
 
@@ -176,7 +186,7 @@ unsafe fn gatt_svr_register_cb(ctxt: *mut ble_gatt_register_ctxt, _arg: *mut ::c
         BLE_GATT_REGISTER_OP_SVC => {
             esp_log!(
                 BLE_TAG,
-                "registered service %s with handle=%d\n",
+                cstr!("registered service %s with handle=%d\n"),
                 ble_uuid_to_str((*(*ctxt).__bindgen_anon_1.svc.svc_def).uuid, buf),
                 (*ctxt).__bindgen_anon_1.svc.handle as i32
             );
@@ -185,7 +195,7 @@ unsafe fn gatt_svr_register_cb(ctxt: *mut ble_gatt_register_ctxt, _arg: *mut ::c
         BLE_GATT_REGISTER_OP_CHR => {
             esp_log!(
                 BLE_TAG,
-                "registering characteristic %s with def_handle=%d val_handle=%d\n",
+                cstr!("registering characteristic %s with def_handle=%d val_handle=%d\n"),
                 ble_uuid_to_str((*(*ctxt).__bindgen_anon_1.chr.chr_def).uuid, buf),
                 (*ctxt).__bindgen_anon_1.chr.def_handle as i32,
                 (*ctxt).__bindgen_anon_1.chr.val_handle as i32
@@ -195,12 +205,12 @@ unsafe fn gatt_svr_register_cb(ctxt: *mut ble_gatt_register_ctxt, _arg: *mut ::c
         BLE_GATT_REGISTER_OP_DSC => {
             esp_log!(
                 BLE_TAG,
-                "registering descriptor %s with handle=%d\n",
+                cstr!("registering descriptor %s with handle=%d\n"),
                 ble_uuid_to_str((*(*ctxt).__bindgen_anon_1.dsc.dsc_def).uuid, buf),
                 (*ctxt).__bindgen_anon_1.dsc.handle as i32
             );
         }
-        _ => esp_log!(BLE_TAG, "unknown operation: %d\n", (*ctxt).op as u32),
+        _ => esp_log!(BLE_TAG, cstr!("unknown operation: %d\n"), (*ctxt).op as u32),
     }
 }
 
@@ -281,11 +291,309 @@ unsafe fn gatt_svr_init() -> i32 {
     return 0;
 }
 
+// main.c
+
+static mut BLE_HR_TAG: *const i8 = cstr!("NimBLE_BLE_HeartRate");
+
+static mut BLEHR_TX_TIMER: TimerHandle_t = ptr::null_mut();
+
+static mut NOTIFY_STATE: bool = false;
+
+static mut CONN_HANDLE: u16 = 0;
+
+const DEVICE_NAME: &str = "blehr_sensor_1.0\0";
+
+static mut BLEHR_ADDRESS_TYPE: u8 = 0;
+
+/* Variable to simulate heart beats */
+static mut HEARTRATE: u8 = 90;
+
+unsafe fn print_bytes(bytes: *const u8, len: usize) {
+    let u8p: &[u8];
+
+    u8p = core::slice::from_raw_parts(bytes, len);
+
+    for i in 0..len {
+        esp_log!(
+            BLE_HR_TAG,
+            cstr!("%s0x%02x"),
+            if i != 0 { ":" } else { "" },
+            u8p[i] as u32
+        );
+    }
+}
+
+unsafe fn print_addr(addr: *const c_void) {
+    let u8p: &[u8];
+
+    u8p = core::slice::from_raw_parts(addr as *const u8, 6);
+    esp_log!(
+        BLE_HR_TAG,
+        cstr!("%02x:%02x:%02x:%02x:%02x:%02x"),
+        u8p[5] as u32,
+        u8p[4] as u32,
+        u8p[3] as u32,
+        u8p[2] as u32,
+        u8p[1] as u32,
+        u8p[0] as u32
+    );
+}
+
+unsafe fn blehr_tx_hrate_stop() {
+    xTimerStop(BLEHR_TX_TIMER, 1000 / portTICK_PERIOD_MS);
+}
+
+/* Reset heartrate measurment */
+unsafe fn blehr_tx_hrate_reset() {
+    let rc;
+
+    if xTimerReset(BLEHR_TX_TIMER, 1000 / portTICK_PERIOD_MS) == pdPASS {
+        rc = 0;
+    } else {
+        rc = 1;
+    }
+    assert!(rc == 0);
+}
+
+/* This function simulates heart beat and notifies it to the client */
+unsafe extern "C" fn blehr_tx_hrate(_ev: TimerHandle_t) {
+    let mut hrm: [u8; 2] = [0; 2];
+    let rc;
+    let om: *mut os_mbuf;
+
+    if !NOTIFY_STATE {
+        blehr_tx_hrate_stop();
+        HEARTRATE = 90;
+        return;
+    }
+
+    hrm[0] = 0x06; /* contact of a sensor */
+    hrm[1] = HEARTRATE; /* storing dummy data */
+
+    /* Simulation of heart beats */
+    HEARTRATE += 1;
+    if HEARTRATE == 160 {
+        HEARTRATE = 90;
+    }
+
+    om = ble_hs_mbuf_from_flat(hrm.as_ptr() as *const _, size_of::<[u8; 2]>() as u16);
+    rc = ble_gattc_notify_custom(CONN_HANDLE, HRS_HRM_HANDLE, om);
+
+    assert!(rc == 0);
+
+    blehr_tx_hrate_reset();
+}
+
+unsafe extern "C" fn blehr_gap_event(
+    event: *mut ble_gap_event,
+    _arg: *mut ::core::ffi::c_void,
+) -> i32 {
+    match (*event).type_ as u32 {
+        BLE_GAP_EVENT_CONNECT => {
+            /* A new connection was established or a connection attempt failed */
+            esp_log!(
+                BLE_HR_TAG,
+                cstr!("connection %s; status=%d\n"),
+                if (*event).__bindgen_anon_1.connect.status == 0 {
+                    cstr!("established")
+                } else {
+                    cstr!("failed")
+                },
+                (*event).__bindgen_anon_1.connect.status
+            );
+
+            if (*event).__bindgen_anon_1.connect.status != 0 {
+                /* Connection failed; resume advertising */
+                blehr_advertise();
+            }
+            CONN_HANDLE = (*event).__bindgen_anon_1.connect.conn_handle;
+        }
+
+        BLE_GAP_EVENT_DISCONNECT => {
+            esp_log!(
+                BLE_HR_TAG,
+                cstr!("disconnect; reason=%d\n"),
+                (*event).__bindgen_anon_1.disconnect.reason
+            );
+
+            /* Connection terminated; resume advertising */
+            blehr_advertise();
+        }
+
+        BLE_GAP_EVENT_ADV_COMPLETE => {
+            esp_log!(BLE_HR_TAG, cstr!("adv complete\n"));
+            blehr_advertise();
+        }
+
+        BLE_GAP_EVENT_SUBSCRIBE => {
+            esp_log!(
+                BLE_HR_TAG,
+                cstr!("subscribe event; cur_notify=%d\n value handle; val_handle=%d\n"),
+                (*event).__bindgen_anon_1.subscribe.cur_notify() as u32,
+                HRS_HRM_HANDLE as u32
+            );
+            if (*event).__bindgen_anon_1.subscribe.attr_handle == HRS_HRM_HANDLE {
+                NOTIFY_STATE = (*event).__bindgen_anon_1.subscribe.cur_notify() != 0;
+                blehr_tx_hrate_reset();
+            } else if (*event).__bindgen_anon_1.subscribe.attr_handle != HRS_HRM_HANDLE {
+                NOTIFY_STATE = (*event).__bindgen_anon_1.subscribe.cur_notify() != 0;
+                blehr_tx_hrate_stop();
+            }
+            esp_log!(
+                cstr!("BLE_GAP_SUBSCRIBE_EVENT"),
+                cstr!("conn_handle from subscribe=%d"),
+                CONN_HANDLE as u32,
+            );
+        }
+
+        BLE_GAP_EVENT_MTU => {
+            esp_log!(
+                BLE_HR_TAG,
+                cstr!("mtu update event; conn_handle=%d mtu=%d\n"),
+                (*event).__bindgen_anon_1.mtu.conn_handle as u32,
+                (*event).__bindgen_anon_1.mtu.value as u32,
+            );
+        }
+        _ => esp_log!(
+            BLE_HR_TAG,
+            cstr!("unknown operation: %d\n"),
+            (*event).type_ as u32
+        ),
+    }
+
+    return 0;
+}
+
+/*
+ * Enables advertising with parameters:
+ *     o General discoverable mode
+ *     o Undirected connectable mode
+ */
+unsafe fn blehr_advertise() {
+    let mut fields: ble_hs_adv_fields = core::mem::MaybeUninit::zeroed().assume_init();
+    /*
+     * Advertise two flags:
+     *      o Discoverability in forthcoming advertisement (general)
+     *      o BLE-only (BR/EDR unsupported)
+     */
+    fields.flags = BLE_HS_ADV_F_DISC_GEN as u8 | BLE_HS_ADV_F_BREDR_UNSUP as u8;
+
+    /*
+     * Indicate that the TX power level field should be included; have the
+     * stack fill this value automatically.  This is done by assigning the
+     * special value BLE_HS_ADV_TX_PWR_LVL_AUTO.
+     */
+    fields.set_tx_pwr_lvl_is_present(1);
+    fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO as i8;
+
+    fields.name = DEVICE_NAME.as_ptr() as *mut u8;
+    fields.name_len = DEVICE_NAME.len() as u8;
+    fields.set_name_is_complete(1);
+
+    let mut rc = ble_gap_adv_set_fields(&fields);
+    if rc != 0 {
+        esp_log!(
+            BLE_HR_TAG,
+            cstr!("error setting advertisement data; rc=%d\n"),
+            rc
+        );
+        return;
+    }
+
+    /* Begin advertising */
+    let mut adv_params: ble_gap_adv_params = std::mem::MaybeUninit::zeroed().assume_init();
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND as u8;
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN as u8;
+    rc = ble_gap_adv_start(
+        BLEHR_ADDRESS_TYPE,
+        ptr::null(),
+        core::i32::MAX,
+        &adv_params,
+        Some(blehr_gap_event),
+        ptr::null_mut(),
+    );
+    if rc != 0 {
+        esp_log!(
+            BLE_HR_TAG,
+            cstr!("error enabling advertisement; rc=%d\n"),
+            rc
+        );
+        return;
+    }
+}
+
+unsafe extern "C" fn blehr_on_sync() {
+    let mut rc;
+
+    rc = ble_hs_id_infer_auto(0, &mut BLEHR_ADDRESS_TYPE as *mut _);
+    assert!(rc == 0);
+
+    let addr_val: *mut u8 = [0; 6].as_mut_ptr();
+    rc = ble_hs_id_copy_addr(BLEHR_ADDRESS_TYPE, addr_val, ptr::null_mut());
+    assert!(rc == 0);
+
+    esp_log!(BLE_HR_TAG, cstr!("Device Address: "));
+    print_addr(addr_val as *const c_void);
+    esp_log!(BLE_HR_TAG, cstr!("\n"));
+
+    /* Begin advertising */
+    blehr_advertise();
+}
+
+unsafe extern "C" fn blehr_on_reset(reason: i32) {
+    esp_log!(BLE_HR_TAG, cstr!("Resetting state; reason=%d\n"), reason);
+}
+
+unsafe extern "C" fn blehr_host_task(_param: *mut c_void) {
+    esp_log!(BLE_HR_TAG, cstr!("BLE Host Task Started"));
+    /* This function will return only when nimble_port_stop() is executed */
+    nimble_port_run();
+
+    nimble_port_freertos_deinit();
+}
+
+unsafe fn init_bt() {
+    /* Initialize NVS — it is used to store PHY calibration data */
+    let mut ret: esp_err_t = nvs_flash_init();
+    if ret == ESP_ERR_NVS_NO_FREE_PAGES as i32 || ret == ESP_ERR_NVS_NEW_VERSION_FOUND as i32 {
+        esp_error_check!(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    esp_error_check!(ret);
+
+    esp_error_check!(esp_nimble_hci_and_controller_init());
+
+    nimble_port_init();
+    /* Initialize the NimBLE host configuration */
+    ble_hs_cfg.sync_cb = Some(blehr_on_sync);
+    ble_hs_cfg.reset_cb = Some(blehr_on_reset);
+    ble_hs_cfg.gatts_register_cb = Some(gatt_svr_register_cb);
+
+    /* name, period/time,  auto reload, timer ID, callback */
+    BLEHR_TX_TIMER = xTimerCreate(
+        cstr!("blehr_tx_timer"),
+        pdMS_TO_TICKS!(1000),
+        pdTRUE,
+        ptr::null_mut(),
+        Some(blehr_tx_hrate),
+    );
+
+    let mut rc: i32 = 0;
+    rc = gatt_svr_init();
+    assert!(rc == 0);
+
+    /* Set the default device name */
+    rc = ble_svc_gap_device_name_set(DEVICE_NAME.as_ptr() as *const _);
+    assert!(rc == 0);
+
+    /* Start the task */
+    nimble_port_freertos_init(Some(blehr_host_task));
+}
+
 #[no_mangle]
 pub fn app_main() {
     unsafe {
-        // TODO: check init
-        gatt_svr_init();
+        init_bt();
 
         rust_blink_and_write();
     }

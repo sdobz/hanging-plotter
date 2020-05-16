@@ -15,16 +15,19 @@ typedef struct _reent *_data;
 #include "esp_log.h"
 
 // Bluetooth?
+#include "nvs_flash.h"
+#include "freertos/FreeRTOSConfig.h"
+#include "freertos/timers.h"
 #include "esp_nimble_hci.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "nimble/ble.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "console/console.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-#include "nimble/ble.h"
 #include "modlog/modlog.h"
 
 /* Manual defines because the macros are too complex to be processed */
