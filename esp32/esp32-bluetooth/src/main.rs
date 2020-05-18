@@ -5,6 +5,9 @@
 
 extern crate esp32_sys;
 
+mod debug;
+mod gatt_svr;
+
 use core::ffi::c_void;
 use core::mem::size_of;
 use core::panic::PanicInfo;
@@ -13,6 +16,8 @@ use esp32_sys::*;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    unsafe { esp_log!(BLE_HR_TAG, cstr!("Panic!\n")) };
+
     loop {}
 }
 
@@ -42,12 +47,6 @@ const BUF_SIZE: i32 = 1024;
     }
 */
 
-macro_rules! cstr {
-    ($src:expr) => {
-        (concat!($src, "\0")).as_ptr() as *const _
-    };
-}
-
 const fn ble_uuid16_declare(value: u16) -> *const ble_uuid_t {
     &ble_uuid16_t {
         u: ble_uuid_t {
@@ -71,7 +70,7 @@ const fn null_ble_gatt_chr_def() -> ble_gatt_chr_def {
 
 const fn null_ble_gatt_svc_def() -> ble_gatt_svc_def {
     return ble_gatt_svc_def {
-        type_: 0,
+        type_: BLE_GATT_SVC_TYPE_END as u8,
         uuid: ptr::null(),
         includes: ptr::null_mut(),
         characteristics: ptr::null(),
@@ -170,11 +169,6 @@ extern "C" fn gatt_svr_chr_access_device_info(
     return BLE_ATT_ERR_UNLIKELY as i32;
 }
 
-macro_rules! esp_log {
-    ($tag:expr, $format:expr) => (esp_log_write(esp_log_level_t_ESP_LOG_INFO, $tag, $format));
-    ($tag:expr, $format:expr, $($arg:tt)*) => (esp_log_write(esp_log_level_t_ESP_LOG_INFO, $tag, $format, $($arg)*));
-}
-
 unsafe extern "C" fn gatt_svr_register_cb(
     ctxt: *mut ble_gatt_register_ctxt,
     _arg: *mut ::core::ffi::c_void,
@@ -215,10 +209,11 @@ unsafe extern "C" fn gatt_svr_register_cb(
 }
 
 unsafe fn gatt_svr_init() -> i32 {
-    let svcs: *const ble_gatt_svc_def = [
+    let svcs: [ble_gatt_svc_def; 3] = [
         ble_gatt_svc_def {
             type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
             uuid: ble_uuid16_declare(GATT_HRS_UUID),
+            includes: ptr::null_mut(),
             characteristics: [
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare(GATT_HRS_MEASUREMENT_UUID),
@@ -241,24 +236,24 @@ unsafe fn gatt_svr_init() -> i32 {
                 null_ble_gatt_chr_def(),
             ]
             .as_ptr(),
-            includes: ptr::null_mut(),
         },
         ble_gatt_svc_def {
             type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
             uuid: ble_uuid16_declare(GATT_DEVICE_INFO_UUID),
+            includes: ptr::null_mut(),
             characteristics: [
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare(GATT_MANUFACTURER_NAME_UUID),
                     access_cb: Some(gatt_svr_chr_access_device_info),
                     arg: ptr::null_mut(),
                     descriptors: ptr::null_mut(),
-                    flags: BLE_GATT_CHR_F_NOTIFY as u16,
+                    flags: BLE_GATT_CHR_F_READ as u16,
                     min_key_size: 0,
                     val_handle: ptr::null_mut(),
                 },
                 ble_gatt_chr_def {
-                    uuid: ble_uuid16_declare(GATT_HRS_BODY_SENSOR_LOC_UUID),
-                    access_cb: Some(gatt_svr_chr_access_heart_rate),
+                    uuid: ble_uuid16_declare(GATT_MODEL_NUMBER_UUID),
+                    access_cb: Some(gatt_svr_chr_access_device_info),
                     arg: ptr::null_mut(),
                     descriptors: ptr::null_mut(),
                     flags: BLE_GATT_CHR_F_READ as u16,
@@ -268,25 +263,32 @@ unsafe fn gatt_svr_init() -> i32 {
                 null_ble_gatt_chr_def(),
             ]
             .as_ptr(),
-            includes: ptr::null_mut(),
         },
         null_ble_gatt_svc_def(),
-    ]
-    .as_ptr();
-    let mut rc;
+    ];
+
+    print_ptr(cstr!("type"), &svcs[0].type_);
+    print_ptr(cstr!("uuid"), &svcs[0].uuid);
+    print_ptr(cstr!("includes"), &svcs[0].includes);
+    print_ptr(cstr!("characteristics"), &svcs[0].characteristics);
+    print_ptr(cstr!("svcs[0]"), &svcs[0]);
+    print_ptr(cstr!("svcs.as_ptr()"), svcs.as_ptr());
+    print_ptr(cstr!("svcs[1]"), &svcs[0]);
+    print_ptr(cstr!("svcs.as_ptr().add(1)"), svcs.as_ptr().add(1));
+    printf(cstr!("type[0] %d\n"), (*svcs.as_ptr()).type_ as u32);
+    printf(cstr!("type[1] %d\n"), (*svcs.as_ptr().add(1)).type_ as u32);
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
-    rc = ble_gatts_count_cfg(svcs);
-    if rc != 0 {
-        return rc;
-    }
+    let mut rc;
 
-    rc = ble_gatts_add_svcs(svcs);
-    if rc != 0 {
-        return rc;
-    }
+    rc = ble_gatts_count_cfg(svcs.as_ptr());
+    esp_log!(BLE_HR_TAG, cstr!("RC is %d\n"), rc);
+    esp_assert!(rc == 0, cstr!("RC err after ble_gatts_count_cfg\n"));
+
+    rc = ble_gatts_add_svcs(svcs.as_ptr());
+    esp_assert!(rc == 0, cstr!("RC err after ble_gatts_add_svcs\n"));
 
     return 0;
 }
@@ -314,13 +316,19 @@ unsafe fn print_bytes(bytes: *const u8, len: usize) {
     u8p = core::slice::from_raw_parts(bytes, len);
 
     for i in 0..len {
-        esp_log!(
-            BLE_HR_TAG,
-            cstr!("%s0x%02x"),
-            if i != 0 { ":" } else { "" },
-            u8p[i] as u32
-        );
+        if (i & 0b1111) == 0 && i > 0 {
+            printf(cstr!("\n"));
+        } else if (i & 0b1) == 0 {
+            printf(cstr!(" "));
+        }
+        printf(cstr!("%02x"), u8p[i] as u32);
     }
+}
+
+unsafe fn print_ptr<T>(name: *const u8, p: *const T) {
+    printf(cstr!("%p - %s:\n"), p, name);
+    print_bytes(p as *const _, size_of::<T>());
+    printf(cstr!("\n"));
 }
 
 unsafe fn print_addr(addr: *const c_void) {
@@ -441,7 +449,7 @@ unsafe extern "C" fn blehr_gap_event(
             }
             esp_log!(
                 cstr!("BLE_GAP_SUBSCRIBE_EVENT"),
-                cstr!("conn_handle from subscribe=%d"),
+                cstr!("conn_handle from subscribe=%d\n"),
                 CONN_HANDLE as u32,
             );
         }
@@ -545,7 +553,7 @@ unsafe extern "C" fn blehr_on_reset(reason: i32) {
 }
 
 unsafe extern "C" fn blehr_host_task(_param: *mut c_void) {
-    esp_log!(BLE_HR_TAG, cstr!("BLE Host Task Started"));
+    esp_log!(BLE_HR_TAG, cstr!("BLE Host Task Started\n"));
     /* This function will return only when nimble_port_stop() is executed */
     nimble_port_run();
 
@@ -580,11 +588,11 @@ unsafe fn init_bt() {
 
     let mut rc: i32 = 0;
     rc = gatt_svr_init();
-    assert!(rc == 0);
+    esp_assert!(rc == 0, cstr!("gatt_svr_init failed\n"));
 
     /* Set the default device name */
-    rc = ble_svc_gap_device_name_set(DEVICE_NAME.as_ptr() as *const _);
-    assert!(rc == 0);
+    rc = ble_svc_gap_device_name_set(cstr!("Fake Device Name"));
+    esp_assert!(rc == 0, cstr!("ble_svc_gap_device_name_set failed\n"));
 
     /* Start the task */
     nimble_port_freertos_init(Some(blehr_host_task));
@@ -593,7 +601,9 @@ unsafe fn init_bt() {
 #[no_mangle]
 pub fn app_main() {
     unsafe {
+        esp_log!(BLE_HR_TAG, cstr!("Setting up!\n"));
         init_bt();
+        esp_log!(BLE_HR_TAG, cstr!("BT init!\n"));
 
         rust_blink_and_write();
     }
