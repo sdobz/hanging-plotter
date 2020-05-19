@@ -5,6 +5,7 @@ edition = "2018"
 
 [dependencies]
 esp32-sys = { path = "esp32-sys" }
+esp-idf-alloc = "0.1.1"
 
 [profile.dev]
 lto = false 

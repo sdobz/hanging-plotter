@@ -3,12 +3,15 @@
 #![feature(const_mut_refs)]
 #![feature(const_fn)]
 #![feature(const_transmute)]
+#![feature(alloc_error_handler)]
 
 extern crate esp32_sys;
+extern crate esp_idf_alloc;
 
 mod debug;
 mod gatt_svr;
 
+use core::alloc::Layout;
 use core::ffi::c_void;
 use core::mem::size_of;
 use core::panic::PanicInfo;
@@ -17,11 +20,27 @@ use debug::print_addr;
 use esp32_sys::*;
 use gatt_svr::{gatt_svr_init, gatt_svr_register_cb, HRS_HRM_HANDLE};
 
+extern "C" {
+    fn abort() -> !;
+}
+
+#[global_allocator]
+static A: esp_idf_alloc::EspIdfAllocator = esp_idf_alloc::EspIdfAllocator;
+
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    unsafe { printf(cstr!("Panic!\n")) };
+    unsafe {
+        printf(cstr!("Panic!\n"));
+        abort();
+    }
+}
 
-    loop {}
+#[alloc_error_handler]
+fn alloc_error(_layout: Layout) -> ! {
+    unsafe {
+        printf(cstr!("Alloc Error!\n"));
+        abort();
+    }
 }
 
 const BLINK_GPIO: gpio_num_t = gpio_num_t_GPIO_NUM_5;

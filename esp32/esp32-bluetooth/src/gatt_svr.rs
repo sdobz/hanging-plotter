@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::mem::size_of;
 use core::ptr;
@@ -5,6 +6,8 @@ use esp32_sys::*;
 
 use crate::{cstr, debug, esp_assert};
 use debug::print_svcs;
+
+extern crate alloc;
 
 const MANUF_NAME: &str = "Apache Mynewt ESP32 devkitC\0";
 const MODEL_NUM: &str = "Mynewt HR Sensor demo\0";
@@ -22,30 +25,6 @@ macro_rules! ble_uuid16_declare {
     };
 }
 
-/*
-macro_rules! undroppable_slice {
-    ($($items:expr),+) => (
-        ManuallyDrop::new([
-            $($items),*
-        ]).as_ptr()
-    )
-}
-*/
-
-/*
-macro_rules! leaky_arr {
-    ($($items:expr),+) => (
-        {
-            let arr = [
-                $($items),*
-            ];
-            let ptr = arr.as_ptr();
-            forget(arr);
-            ptr
-        }
-    )
-}
-
 macro_rules! leaky_box {
     ($($items:expr),+) => (
         Box::into_raw(
@@ -57,17 +36,16 @@ macro_rules! leaky_box {
         ) as *const _
     )
 }
-*/
 
 const fn null_ble_gatt_chr_def() -> ble_gatt_chr_def {
     return ble_gatt_chr_def {
         uuid: ptr::null(),
         access_cb: None,
-        arg: mut_ptr!(ptr::null_mut()),
-        descriptors: mut_ptr!(ptr::null_mut()),
+        arg: (ptr::null_mut()),
+        descriptors: (ptr::null_mut()),
         flags: 0,
         min_key_size: 0,
-        val_handle: mut_ptr!(ptr::null_mut()),
+        val_handle: (ptr::null_mut()),
     };
 }
 
@@ -88,66 +66,63 @@ const GATT_DEVICE_INFO_UUID: u16 = 0x180A;
 const GATT_MANUFACTURER_NAME_UUID: u16 = 0x2A29;
 const GATT_MODEL_NUMBER_UUID: u16 = 0x2A24;
 
-static GATT_SVR_SVCS: ble_gatt_svc_def_ptr = ble_gatt_svc_def_ptr::new(
-    [
+fn alloc_svc_def() -> *const ble_gatt_svc_def {
+    leaky_box!(
         ble_gatt_svc_def {
             type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
             uuid: ble_uuid16_declare!(GATT_HRS_UUID),
             includes: ptr::null_mut(),
-            characteristics: [
+            characteristics: leaky_box!(
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare!(GATT_HRS_MEASUREMENT_UUID),
                     access_cb: Some(gatt_svr_chr_access_heart_rate),
-                    arg: mut_ptr!(ptr::null_mut()),
-                    descriptors: mut_ptr!(ptr::null_mut()),
+                    arg: (ptr::null_mut()),
+                    descriptors: (ptr::null_mut()),
                     flags: BLE_GATT_CHR_F_NOTIFY as u16,
                     min_key_size: 0,
-                    val_handle: mut_ptr!(unsafe { &mut HRS_HRM_HANDLE as *mut u16 }),
+                    val_handle: (unsafe { &mut HRS_HRM_HANDLE as *mut u16 }),
                 },
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare!(GATT_HRS_BODY_SENSOR_LOC_UUID),
                     access_cb: Some(gatt_svr_chr_access_heart_rate),
-                    arg: mut_ptr!(ptr::null_mut()),
-                    descriptors: mut_ptr!(ptr::null_mut()),
+                    arg: (ptr::null_mut()),
+                    descriptors: (ptr::null_mut()),
                     flags: BLE_GATT_CHR_F_READ as u16,
                     min_key_size: 0,
-                    val_handle: mut_ptr!(ptr::null_mut()),
+                    val_handle: ptr::null_mut(),
                 },
-                null_ble_gatt_chr_def(),
-            ]
-            .as_ptr(),
+                null_ble_gatt_chr_def()
+            )
         },
         ble_gatt_svc_def {
             type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
             uuid: ble_uuid16_declare!(GATT_DEVICE_INFO_UUID),
             includes: ptr::null_mut(),
-            characteristics: [
+            characteristics: leaky_box!(
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare!(GATT_MANUFACTURER_NAME_UUID),
                     access_cb: Some(gatt_svr_chr_access_device_info),
-                    arg: mut_ptr!(ptr::null_mut()),
-                    descriptors: mut_ptr!(ptr::null_mut()),
+                    arg: (ptr::null_mut()),
+                    descriptors: (ptr::null_mut()),
                     flags: BLE_GATT_CHR_F_READ as u16,
                     min_key_size: 0,
-                    val_handle: mut_ptr!(ptr::null_mut()),
+                    val_handle: (ptr::null_mut()),
                 },
                 ble_gatt_chr_def {
                     uuid: ble_uuid16_declare!(GATT_MODEL_NUMBER_UUID),
                     access_cb: Some(gatt_svr_chr_access_device_info),
-                    arg: mut_ptr!(ptr::null_mut()),
-                    descriptors: mut_ptr!(ptr::null_mut()),
+                    arg: (ptr::null_mut()),
+                    descriptors: (ptr::null_mut()),
                     flags: BLE_GATT_CHR_F_READ as u16,
                     min_key_size: 0,
-                    val_handle: mut_ptr!(ptr::null_mut()),
+                    val_handle: (ptr::null_mut()),
                 },
-                null_ble_gatt_chr_def(),
-            ]
-            .as_ptr(),
+                null_ble_gatt_chr_def()
+            )
         },
-        null_ble_gatt_svc_def(),
-    ]
-    .as_ptr(),
-);
+        null_ble_gatt_svc_def()
+    )
+}
 
 extern "C" fn gatt_svr_chr_access_heart_rate(
     _conn_handle: u16,
@@ -259,7 +234,8 @@ pub unsafe extern "C" fn gatt_svr_register_cb(
 }
 
 pub unsafe fn gatt_svr_init() -> i32 {
-    let svcs_ptr = GATT_SVR_SVCS.ptr();
+    // Leaks the eff out of the svc_def
+    let svcs_ptr = alloc_svc_def();
     print_svcs(svcs_ptr);
 
     ble_svc_gap_init();

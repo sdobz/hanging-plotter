@@ -2515,7 +2515,7 @@ pub const CONFIG_FREERTOS_IDLE_TASK_STACKSIZE: u32 = 1536;
 pub const CONFIG_FREERTOS_ISR_STACKSIZE: u32 = 1536;
 pub const CONFIG_FREERTOS_MAX_TASK_NAME_LEN: u32 = 16;
 pub const CONFIG_FREERTOS_TIMER_TASK_PRIORITY: u32 = 1;
-pub const CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH: u32 = 2048;
+pub const CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH: u32 = 4096;
 pub const CONFIG_FREERTOS_TIMER_QUEUE_LENGTH: u32 = 10;
 pub const CONFIG_FREERTOS_QUEUE_REGISTRY_SIZE: u32 = 0;
 pub const CONFIG_FREERTOS_TASK_FUNCTION_WRAPPER: u32 = 1;
@@ -2740,7 +2740,7 @@ pub const CONFIG_TCP_SYNMAXRTX: u32 = 6;
 pub const CONFIG_TCP_WND_DEFAULT: u32 = 5744;
 pub const CONFIG_TIMER_QUEUE_LENGTH: u32 = 10;
 pub const CONFIG_TIMER_TASK_PRIORITY: u32 = 1;
-pub const CONFIG_TIMER_TASK_STACK_DEPTH: u32 = 2048;
+pub const CONFIG_TIMER_TASK_STACK_DEPTH: u32 = 4096;
 pub const CONFIG_TIMER_TASK_STACK_SIZE: u32 = 3584;
 pub const CONFIG_TOOLPREFIX: &'static [u8; 18usize] = b"xtensa-esp32-elf-\0";
 pub const CONFIG_TRACEMEM_RESERVE_DRAM: u32 = 0;
@@ -2801,7 +2801,7 @@ pub const configSUPPORT_DYNAMIC_ALLOCATION: u32 = 1;
 pub const configUSE_TIMERS: u32 = 1;
 pub const configTIMER_TASK_PRIORITY: u32 = 1;
 pub const configTIMER_QUEUE_LENGTH: u32 = 10;
-pub const configTIMER_TASK_STACK_DEPTH: u32 = 2048;
+pub const configTIMER_TASK_STACK_DEPTH: u32 = 4096;
 pub const INCLUDE_xTimerPendFunctionCall: u32 = 1;
 pub const INCLUDE_eTaskGetState: u32 = 1;
 pub const configUSE_QUEUE_SETS: u32 = 1;
@@ -29078,6 +29078,29 @@ pub type ble_gatt_access_fn = ::core::option::Option<
     ) -> ::std::os::raw::c_int,
 >;
 pub type ble_gatt_chr_flags = u16;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ble_gatt_chr_def {
+    #[doc = " Pointer to characteristic UUID; use BLE_UUIDxx_DECLARE macros to declare"]
+    #[doc = " proper UUID; NULL if there are no more characteristics in the service."]
+    pub uuid: *const ble_uuid_t,
+    #[doc = " Callback that gets executed when this characteristic is read or"]
+    #[doc = " written."]
+    pub access_cb: ble_gatt_access_fn,
+    #[doc = " Optional argument for callback."]
+    pub arg: *mut ::core::ffi::c_void,
+    #[doc = " Array of this characteristic's descriptors.  NULL if no descriptors."]
+    #[doc = " Do not include CCCD; it gets added automatically if this"]
+    #[doc = " characteristic's notify or indicate flag is set."]
+    pub descriptors: *mut ble_gatt_dsc_def,
+    #[doc = " Specifies the set of permitted operations for this characteristic."]
+    pub flags: ble_gatt_chr_flags,
+    #[doc = " Specifies minimum required key size to access this characteristic."]
+    pub min_key_size: u8,
+    #[doc = " At registration time, this is filled in with the characteristic's value"]
+    #[doc = " attribute handle."]
+    pub val_handle: *mut u16,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ble_gatt_svc_def {
