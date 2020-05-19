@@ -32,6 +32,7 @@ function generate_bindings ()
 	"$BINDGEN" \
 		--use-core \
 		--no-layout-tests \
+		--blacklist-type ble_gatt_chr_def \
 		$BINDGEN_FLAGS \
 		--output src/bindings.rs \
 		src/bindings.h \

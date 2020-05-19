@@ -10,13 +10,16 @@ const MANUF_NAME: &str = "Apache Mynewt ESP32 devkitC\0";
 const MODEL_NUM: &str = "Mynewt HR Sensor demo\0";
 pub static mut HRS_HRM_HANDLE: u16 = 0;
 
-const fn ble_uuid16_declare(value: u16) -> *const ble_uuid_t {
-    &ble_uuid16_t {
-        u: ble_uuid_t {
-            type_: BLE_UUID_TYPE_16 as u8,
-        },
-        value,
-    } as *const ble_uuid16_t as *const ble_uuid_t
+macro_rules! ble_uuid16_declare {
+    ($value:expr) => {
+        &(ble_uuid16_t {
+            u: ble_uuid_t {
+                type_: BLE_UUID_TYPE_16 as u8,
+            },
+            value: $value,
+        }
+        .u) as *const ble_uuid_t
+    };
 }
 
 /*
@@ -60,11 +63,11 @@ const fn null_ble_gatt_chr_def() -> ble_gatt_chr_def {
     return ble_gatt_chr_def {
         uuid: ptr::null(),
         access_cb: None,
-        arg: ptr::null_mut(),
-        descriptors: ptr::null_mut(),
+        arg: mut_ptr!(ptr::null_mut()),
+        descriptors: mut_ptr!(ptr::null_mut()),
         flags: 0,
         min_key_size: 0,
-        val_handle: ptr::null_mut(),
+        val_handle: mut_ptr!(ptr::null_mut()),
     };
 }
 
@@ -85,64 +88,66 @@ const GATT_DEVICE_INFO_UUID: u16 = 0x180A;
 const GATT_MANUFACTURER_NAME_UUID: u16 = 0x2A29;
 const GATT_MODEL_NUMBER_UUID: u16 = 0x2A24;
 
-const GATT_SVR_SVCS: *const ble_gatt_svc_def = [
-    ble_gatt_svc_def {
-        type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
-        uuid: ble_uuid16_declare(GATT_HRS_UUID),
-        includes: ptr::null_mut(),
-        characteristics: [
-            ble_gatt_chr_def {
-                uuid: ble_uuid16_declare(GATT_HRS_MEASUREMENT_UUID),
-                access_cb: Some(gatt_svr_chr_access_heart_rate),
-                arg: ptr::null_mut(),
-                descriptors: ptr::null_mut(),
-                flags: BLE_GATT_CHR_F_NOTIFY as u16,
-                min_key_size: 0,
-                val_handle: unsafe { &mut HRS_HRM_HANDLE as *mut u16 },
-            },
-            ble_gatt_chr_def {
-                uuid: ble_uuid16_declare(GATT_HRS_BODY_SENSOR_LOC_UUID),
-                access_cb: Some(gatt_svr_chr_access_heart_rate),
-                arg: ptr::null_mut(),
-                descriptors: ptr::null_mut(),
-                flags: BLE_GATT_CHR_F_READ as u16,
-                min_key_size: 0,
-                val_handle: ptr::null_mut(),
-            },
-            null_ble_gatt_chr_def(),
-        ]
-        .as_ptr(),
-    },
-    ble_gatt_svc_def {
-        type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
-        uuid: ble_uuid16_declare(GATT_DEVICE_INFO_UUID),
-        includes: ptr::null_mut(),
-        characteristics: [
-            ble_gatt_chr_def {
-                uuid: ble_uuid16_declare(GATT_MANUFACTURER_NAME_UUID),
-                access_cb: Some(gatt_svr_chr_access_device_info),
-                arg: ptr::null_mut(),
-                descriptors: ptr::null_mut(),
-                flags: BLE_GATT_CHR_F_READ as u16,
-                min_key_size: 0,
-                val_handle: ptr::null_mut(),
-            },
-            ble_gatt_chr_def {
-                uuid: ble_uuid16_declare(GATT_MODEL_NUMBER_UUID),
-                access_cb: Some(gatt_svr_chr_access_device_info),
-                arg: ptr::null_mut(),
-                descriptors: ptr::null_mut(),
-                flags: BLE_GATT_CHR_F_READ as u16,
-                min_key_size: 0,
-                val_handle: ptr::null_mut(),
-            },
-            null_ble_gatt_chr_def(),
-        ]
-        .as_ptr(),
-    },
-    null_ble_gatt_svc_def(),
-]
-.as_ptr();
+static GATT_SVR_SVCS: ble_gatt_svc_def_ptr = ble_gatt_svc_def_ptr::new(
+    [
+        ble_gatt_svc_def {
+            type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
+            uuid: ble_uuid16_declare!(GATT_HRS_UUID),
+            includes: ptr::null_mut(),
+            characteristics: [
+                ble_gatt_chr_def {
+                    uuid: ble_uuid16_declare!(GATT_HRS_MEASUREMENT_UUID),
+                    access_cb: Some(gatt_svr_chr_access_heart_rate),
+                    arg: mut_ptr!(ptr::null_mut()),
+                    descriptors: mut_ptr!(ptr::null_mut()),
+                    flags: BLE_GATT_CHR_F_NOTIFY as u16,
+                    min_key_size: 0,
+                    val_handle: mut_ptr!(unsafe { &mut HRS_HRM_HANDLE as *mut u16 }),
+                },
+                ble_gatt_chr_def {
+                    uuid: ble_uuid16_declare!(GATT_HRS_BODY_SENSOR_LOC_UUID),
+                    access_cb: Some(gatt_svr_chr_access_heart_rate),
+                    arg: mut_ptr!(ptr::null_mut()),
+                    descriptors: mut_ptr!(ptr::null_mut()),
+                    flags: BLE_GATT_CHR_F_READ as u16,
+                    min_key_size: 0,
+                    val_handle: mut_ptr!(ptr::null_mut()),
+                },
+                null_ble_gatt_chr_def(),
+            ]
+            .as_ptr(),
+        },
+        ble_gatt_svc_def {
+            type_: BLE_GATT_SVC_TYPE_PRIMARY as u8,
+            uuid: ble_uuid16_declare!(GATT_DEVICE_INFO_UUID),
+            includes: ptr::null_mut(),
+            characteristics: [
+                ble_gatt_chr_def {
+                    uuid: ble_uuid16_declare!(GATT_MANUFACTURER_NAME_UUID),
+                    access_cb: Some(gatt_svr_chr_access_device_info),
+                    arg: mut_ptr!(ptr::null_mut()),
+                    descriptors: mut_ptr!(ptr::null_mut()),
+                    flags: BLE_GATT_CHR_F_READ as u16,
+                    min_key_size: 0,
+                    val_handle: mut_ptr!(ptr::null_mut()),
+                },
+                ble_gatt_chr_def {
+                    uuid: ble_uuid16_declare!(GATT_MODEL_NUMBER_UUID),
+                    access_cb: Some(gatt_svr_chr_access_device_info),
+                    arg: mut_ptr!(ptr::null_mut()),
+                    descriptors: mut_ptr!(ptr::null_mut()),
+                    flags: BLE_GATT_CHR_F_READ as u16,
+                    min_key_size: 0,
+                    val_handle: mut_ptr!(ptr::null_mut()),
+                },
+                null_ble_gatt_chr_def(),
+            ]
+            .as_ptr(),
+        },
+        null_ble_gatt_svc_def(),
+    ]
+    .as_ptr(),
+);
 
 extern "C" fn gatt_svr_chr_access_heart_rate(
     _conn_handle: u16,
@@ -254,17 +259,18 @@ pub unsafe extern "C" fn gatt_svr_register_cb(
 }
 
 pub unsafe fn gatt_svr_init() -> i32 {
-    print_svcs(GATT_SVR_SVCS);
+    let svcs_ptr = GATT_SVR_SVCS.ptr();
+    print_svcs(svcs_ptr);
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
     let mut rc;
 
-    rc = ble_gatts_count_cfg(GATT_SVR_SVCS);
+    rc = ble_gatts_count_cfg(svcs_ptr);
     esp_assert!(rc == 0, cstr!("RC err after ble_gatts_count_cfg\n"));
 
-    rc = ble_gatts_add_svcs(GATT_SVR_SVCS);
+    rc = ble_gatts_add_svcs(svcs_ptr);
     esp_assert!(rc == 0, cstr!("RC err after ble_gatts_add_svcs\n"));
 
     return 0;

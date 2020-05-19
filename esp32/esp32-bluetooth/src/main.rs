@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(const_mut_refs)]
 #![feature(const_fn)]
+#![feature(const_transmute)]
 
 extern crate esp32_sys;
 

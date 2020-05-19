@@ -29080,29 +29080,6 @@ pub type ble_gatt_access_fn = ::core::option::Option<
 pub type ble_gatt_chr_flags = u16;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct ble_gatt_chr_def {
-    #[doc = " Pointer to characteristic UUID; use BLE_UUIDxx_DECLARE macros to declare"]
-    #[doc = " proper UUID; NULL if there are no more characteristics in the service."]
-    pub uuid: *const ble_uuid_t,
-    #[doc = " Callback that gets executed when this characteristic is read or"]
-    #[doc = " written."]
-    pub access_cb: ble_gatt_access_fn,
-    #[doc = " Optional argument for callback."]
-    pub arg: *mut ::core::ffi::c_void,
-    #[doc = " Array of this characteristic's descriptors.  NULL if no descriptors."]
-    #[doc = " Do not include CCCD; it gets added automatically if this"]
-    #[doc = " characteristic's notify or indicate flag is set."]
-    pub descriptors: *mut ble_gatt_dsc_def,
-    #[doc = " Specifies the set of permitted operations for this characteristic."]
-    pub flags: ble_gatt_chr_flags,
-    #[doc = " Specifies minimum required key size to access this characteristic."]
-    pub min_key_size: u8,
-    #[doc = " At registration time, this is filled in with the characteristic's value"]
-    #[doc = " attribute handle."]
-    pub val_handle: *mut u16,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct ble_gatt_svc_def {
     #[doc = " One of the following:"]
     #[doc = "     o BLE_GATT_SVC_TYPE_PRIMARY - primary service"]
