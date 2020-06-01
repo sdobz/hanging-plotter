@@ -4,7 +4,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 ELF=$(find ./build -maxdepth 1 -type f -regex ".*\.elf")
 
-: ${TTY:=/dev/ttyUSB0}]
+: ${TTY:=/dev/ttyUSB0}
 
 if [ ! -f $ELF ]; then
     echo "Could not find ELF"
